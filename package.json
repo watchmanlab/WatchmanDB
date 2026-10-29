@@ -1,0 +1,19 @@
+{
+  "name": "@watchmanlab/stream",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "bun check"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  },
+  "dependencies": {
+    "@watchmanlab/stream": "^0.3.2",
+    "lmdb": "^3.5.9",
+    "zod": "^4.6.7"
+  }
+}
