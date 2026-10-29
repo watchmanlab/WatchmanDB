@@ -1,8 +1,5 @@
-export interface SchemaProvider<
-  SHAPE extends Record<string, any>,
-  OUT extends Record<string, any>,
-> {
-  readonly shape: SHAPE;
+export interface SchemaProvider<SCHEMA, OUT extends Record<string, any>> {
+  readonly schema: SCHEMA;
   parse(data: unknown): OUT;
   partialParse(data: unknown): Partial<OUT>;
 }

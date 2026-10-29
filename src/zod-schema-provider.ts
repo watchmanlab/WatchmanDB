@@ -1,12 +1,12 @@
 import type { SchemaProvider } from "./schema-provider";
 import { z } from "zod";
 
-export function zodProvider<T extends z.core.$ZodShape>(
-  shape: T,
-): SchemaProvider<T, z.output<z.ZodObject<T>>> {
+export function zodProvider<T extends z.ZodObject>(
+  schema: T,
+): SchemaProvider<T, z.output<T>> {
   return {
-    shape,
-    parse: (data) => z.object(shape).parse(data),
-    partialParse: (data) => z.object(shape).partial().parse(data) as any,
+    schema,
+    parse: (data) => schema.parse(data),
+    partialParse: (data) => schema.partial().parse(data) as any,
   };
 }
