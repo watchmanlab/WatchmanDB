@@ -1,29 +1,24 @@
 import { Source, Stream } from "@watchmanlab/stream";
-import type { Database, Key } from "lmdb";
+import { open, type Database, type Key } from "lmdb";
 import type { Db } from "./db";
 import type { SchemaProvider } from "./schema-provider";
+import { ZodSchema } from "./zod-schema";
+import z from "zod";
 
-type InTransaction<DB extends Db<any, any>> =
-  DB extends Db<any, infer TX> ? (TX extends true ? true : false) : never;
-export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
-  private _db: DB;
+export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
   private _$insert?: Stream<ROW>;
   private _$update?: Stream<ROW>;
   private _$delete?: Stream<ROW>;
-  private _schema: SCHEMA;
-  private _schemaProvider: SchemaProvider<SCHEMA>;
+  private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
 
   constructor(
-    db: DB,
     lmdb: Database,
-    schema: SCHEMA,
-    schemaProvider: SchemaProvider<SCHEMA>,
-    private options?: Table.Options<DB, ROW>,
+    schemaProvider: SchemaProvider<SCHEMA, ROW>,
+    private options?: Table.Options,
   ) {
-    this._db = db;
     this._lmdb = lmdb;
-    this._schema = schema;
+
     this._schemaProvider = schemaProvider;
   }
   get $insert() {
@@ -87,9 +82,7 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   //   return Source.from(scanStream);
   // }
 
-  insert(
-    data: ROW,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
+  insert(data: ROW): TX extends true ? boolean : Promise<boolean> {
     try {
       this._lmdb.getWriteTxnId();
       return this._insert(data) as never;
@@ -99,7 +92,7 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   }
   update(
     data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
+  ): TX extends true ? boolean : Promise<boolean> {
     try {
       this._lmdb.getWriteTxnId();
       return this._update(data) as never;
@@ -107,18 +100,14 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
       return this._lmdb.transaction(() => this._update(data)) as never;
     }
   }
-  upsert(
-    data: ROW,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
+  upsert(data: ROW): TX extends true ? boolean : Promise<boolean> {
     if (this._lmdb.doesExist(data.id)) {
       return this.update(data) as never;
     } else {
       return this.insert(data) as never;
     }
   }
-  delete(
-    id: ROW["id"],
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
+  delete(id: ROW["id"]): TX extends true ? boolean : Promise<boolean> {
     try {
       this._lmdb.getWriteTxnId();
       return this._delete(id) as never;
@@ -129,14 +118,12 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   private _insert(data: ROW) {
     if (this._lmdb.doesExist(data.id)) return false;
 
-    this.options?.triggers?.beforeInsert?.(this._db, data);
+    // this.options?.triggers?.beforeInsert?.(this._db, data);
 
-    const parsed = Object.freeze(
-      this._schemaProvider.parse(data, this._schema),
-    );
+    const parsed = Object.freeze(this._schemaProvider.parse(data));
 
-    this._lmdb.put(parsed.id, parsed as ROW).then((r) => {
-      if (r) this._$insert?.push(data as ROW);
+    this._lmdb.put(parsed.id, parsed).then((r) => {
+      if (r) this._$insert?.push(parsed);
     });
 
     return true;
@@ -145,16 +132,14 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
     const old = this._lmdb.get(data.id);
     if (!old) return false;
 
-    this.options?.triggers?.beforeUpdate?.(this._db, data, old);
-
-    data = { ...old, ...data };
+    // this.options?.triggers?.beforeUpdate?.(this._db, data, old);
 
     const parsed = Object.freeze(
-      this._schemaProvider.parse(data, this._schema),
+      this._schemaProvider.parse({ ...old, ...data }),
     );
 
-    this._lmdb.put(parsed.id, parsed as ROW).then((r) => {
-      if (r) this._$update?.push(parsed as ROW);
+    this._lmdb.put(parsed.id, parsed).then((r) => {
+      if (r) this._$update?.push(parsed);
     });
 
     return true;
@@ -163,7 +148,7 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
     const old = this._lmdb.get(id);
     if (!old) return false;
 
-    this?.options?.triggers?.beforeDelete?.(this._db, old);
+    // this?.options?.triggers?.beforeDelete?.(this._db, old);
 
     this._lmdb.remove(old.id).then((r) => {
       if (r) this._$delete?.push(old);
@@ -178,10 +163,9 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
 export namespace Table {
   export type Row = Record<string, any> & { id: Key };
   export type InferRow<T extends Table<any, any, any>> =
-    T extends Table<any, any, infer R> ? R : never;
-  export type Options<DB extends Db<any, true>, ROW extends Row> = {
+    T extends Table<any, infer R, any> ? R : never;
+  export type Options = {
     ignoreValidation?: boolean;
-    triggers?: Triggers<DB, ROW>;
   };
 
   export type Triggers<DB extends Db<any, true>, ROW extends Row> = {
@@ -194,3 +178,15 @@ export namespace Table {
     beforeDelete?: (db: DB, old: ROW) => void;
   };
 }
+
+const lmdb = open("", {});
+const table = new Table(
+  lmdb,
+  new ZodSchema({
+    id: z.string(),
+    name: z.string(),
+    age: z.number(),
+  }),
+);
+
+let v = table.insert({ id: "", name: "sof", age: 33 });

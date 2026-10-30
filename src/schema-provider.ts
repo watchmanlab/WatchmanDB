@@ -1,7 +1,6 @@
 import type { Key } from "lmdb";
-import type { Table } from "./table";
 
-export interface SchemaProvider<SCHEMA> {
-  define<S extends SCHEMA>(schema: S): S;
-  parse<S extends SCHEMA>(data: unknown, schema: S): Table.Row;
+export abstract class SchemaProvider<SCHEMA, OUT extends Record<string, any>> {
+  constructor(public readonly schema: SCHEMA) {}
+  abstract parse(data: unknown): OUT;
 }
