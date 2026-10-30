@@ -1,41 +1,50 @@
 import type { Database } from "lmdb";
 import type { Table } from "./table";
-import { listen } from "@watchmanlab/stream";
+import { fromIterable, map, Source, Stream } from "@watchmanlab/stream";
 
 export class Index<
-  TABLE extends Table<any, any, any>,
-  ROW extends Table.InferRow<TABLE> = Table.InferRow<TABLE>,
-  COLS extends Exclude<keyof ROW, "id">[] = Exclude<keyof ROW, "id">[],
+  ROW extends Table.Row,
+  COL extends Exclude<keyof ROW, "id"> = Exclude<keyof ROW, "id">,
 > {
   private _lmdb: Database;
-  private _columns: COLS;
-  constructor(lmdb: Database, table: TABLE, columns: COLS) {
+  private _columns: COL[];
+  constructor(lmdb: Database, columns: COL[]) {
     this._lmdb = lmdb;
     this._columns = columns;
-
-    table.$beforeInsert.pipe(listen((row) => this._insert(row)));
-    table.$beforeUpdate.pipe(listen(({ New, Old }) => this._update(New, Old)));
-    table.$beforeDelete.pipe(listen((row) => this._delete(row)));
-
-    table.addIndex(this);
   }
 
-  get lmdb() {
-    return this._lmdb;
-  }
-  get columns() {
-    return this._columns;
-  }
   private _makeIndexKey(row: ROW): string {
     const values = this._columns.map((col) => String(row[col]));
     return [...values, String(row.id)].join("\x00");
   }
 
-  private _insert(row: ROW) {
+  find(query: Record<any, any>): Source<ROW["id"]> | undefined {
+    const queryKeys = Object.keys(query) as string[];
+
+    // Check if this index completely satisfies all fields in the user query
+    const matchesAll = this._columns.every((col) =>
+      queryKeys.includes(col as string),
+    );
+
+    if (matchesAll) {
+      // Construct composite search key up to the index boundary
+      const searchValues = this._columns
+        .map((col) => String(query[col]))
+        .join("\x00");
+
+      return fromIterable(
+        this._lmdb.getRange({
+          start: searchValues,
+          end: searchValues + "\xff",
+        }),
+      ).pipe(map((e) => e.value));
+    }
+  }
+  insert(row: ROW) {
     const indexKey = this._makeIndexKey(row);
     this._lmdb.put(indexKey, row.id);
   }
-  private _update(newRow: ROW, oldRow: ROW) {
+  update(newRow: ROW, oldRow: ROW) {
     const oldIndexKey = this._makeIndexKey(oldRow);
     const newIndexKey = this._makeIndexKey(newRow);
 
@@ -45,7 +54,7 @@ export class Index<
     }
   }
 
-  private _delete(row: ROW) {
+  delete(row: ROW) {
     const indexKey = this._makeIndexKey(row);
     this._lmdb.remove(indexKey);
   }
@@ -64,3 +73,10 @@ export namespace Index {
               : `${T}:${InferIndex<Exclude<U, T>>}`)
       : never;
 }
+
+const idx = new Index<{
+  id: number;
+  name: string;
+  age: number;
+  location: [number, number];
+}>({} as Database, ["name", "age"]);
