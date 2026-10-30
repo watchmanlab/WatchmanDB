@@ -1,8 +1,13 @@
-export interface SchemaProvider<SCHEMA, OUT extends Record<string, any>> {
-  readonly schema: SCHEMA;
-  parse(data: unknown): OUT;
-  partialParse(data: unknown): Partial<OUT>;
-}
+import type { Key } from "lmdb";
 
-export type InferProviderOutput<T> =
-  T extends SchemaProvider<any, infer OUT> ? OUT : never;
+export interface SchemaProvider<SCHEMA> {
+  define<S extends SCHEMA>(schema: S): S;
+  parse<S extends SCHEMA>(
+    data: unknown,
+    schema: S,
+  ): Record<string, any> & { id: Key };
+  partialParse<S extends SCHEMA>(
+    data: unknown,
+    schema: S,
+  ): Partial<Record<string, any> & { id: Key }>;
+}

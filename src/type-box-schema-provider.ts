@@ -1,10 +1,11 @@
 import { Compile } from "typebox/compile";
 import { Type } from "typebox";
 import type { SchemaProvider } from "./schema-provider";
+import type { Key } from "lmdb";
 
-export function typeboxProvider<T extends Type.TObject>(
-  schema: T,
-): SchemaProvider<T, Type.Static<T>> {
+export function typeboxProvider<
+  T extends Type.TObject<{ id: Type.TUnsafe<Key> }>,
+>(schema: T): SchemaProvider<T, Type.Static<T>> {
   const compiler = Compile(schema);
   const compilerPartial = Compile(Type.Partial(schema));
   return {

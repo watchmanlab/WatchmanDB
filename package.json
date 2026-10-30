@@ -6,15 +6,15 @@
     "typecheck": "bun check"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typebox": "^1.4.3",
+    "zod": "^4.6.7"
   },
   "peerDependencies": {
     "typescript": "^7"
   },
   "dependencies": {
     "@watchmanlab/stream": "^0.3.2",
-    "lmdb": "^3.5.9",
-    "typebox": "^1.4.3",
-    "zod": "^4.6.7"
+    "lmdb": "^3.5.9"
   }
 }
