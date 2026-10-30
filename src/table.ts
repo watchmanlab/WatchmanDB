@@ -1,41 +1,38 @@
 import { Source, Stream } from "@watchmanlab/stream";
-import type { Database } from "lmdb";
-import type { Db } from "./db";
+import type { Database, Key } from "lmdb";
+import type { SchemaProvider } from "./schema-provider";
 
-type InTransaction<DB extends Db<any, any>> =
-  DB extends Db<any, infer TX> ? (TX extends true ? true : false) : never;
-export class Table<
-  NAME extends string,
-  DB extends Db<any, true>,
-  SCHEMA,
-  ROW extends Record<string, any>,
-> {
-  private _db: DB;
-  private _lmdb: Database<ROW>;
-  private _$insert?: Stream<ROW>;
-  private _$update?: Stream<ROW>;
-  private _$delete?: Stream<ROW>;
-  private _schema?: SCHEMA;
+export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
+  private _lmdb: Database<Readonly<ROW>>;
+  private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
+  private _$beforeInsert?: Stream<Readonly<ROW>>;
+  private _$afterInsert?: Stream<Readonly<ROW>>;
+  private _$beforeUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
+  private _$afterUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
+  private _$beforeDelete?: Stream<Readonly<ROW>>;
+  private _$afterDelete?: Stream<Readonly<ROW>>;
 
-  constructor(
-    db: DB,
-    lmdb: Database,
-    schema: SCHEMA,
-    private options?: Table.Options<DB, ROW>,
-  ) {
-    this._db = db;
+  constructor(lmdb: Database, schemaProvider: SchemaProvider<SCHEMA, ROW>) {
     this._lmdb = lmdb;
-
-    this._schema = options?.noValidation ? undefined : schema;
+    this._schemaProvider = schemaProvider;
   }
-  get $insert() {
-    return Source.from((this._$insert ??= new Stream()));
+  get $afterInsert(): Source<Readonly<ROW>> {
+    return Source.from((this._$afterInsert ??= new Stream()));
   }
-  get $update() {
-    return Source.from((this._$update ??= new Stream()));
+  get $beforeInsert(): Source<Readonly<ROW>> {
+    return Source.from((this._$beforeInsert ??= new Stream()));
   }
-  get $delete() {
-    return Source.from((this._$delete ??= new Stream()));
+  get $beforeUpdate(): Source<{ New: Readonly<ROW>; Old: Readonly<ROW> }> {
+    return Source.from((this._$beforeUpdate ??= new Stream()));
+  }
+  get $afterUpdate(): Source<{ New: Readonly<ROW>; Old: Readonly<ROW> }> {
+    return Source.from((this._$afterUpdate ??= new Stream()));
+  }
+  get $beforeDelete(): Source<Readonly<ROW>> {
+    return Source.from((this._$beforeDelete ??= new Stream()));
+  }
+  get $afterDelete(): Source<Readonly<ROW>> {
+    return Source.from((this._$afterDelete ??= new Stream()));
   }
 
   get(id: ROW["id"]): ROW | undefined {
@@ -89,72 +86,66 @@ export class Table<
   //   return Source.from(scanStream);
   // }
 
-  insert(
-    data: ROW,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schema?.parse(data);
-
+  private _isInsideTransaction(): boolean {
     try {
-      this._lmdb.getWriteTxnId();
-      return this._insert(data) as never;
-    } catch (error: any) {
-      return this._lmdb.transaction(() => this._insert(data)) as never;
+      return this._lmdb.getWriteTxnId() > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+  insert(row: ROW): TX extends true ? boolean : Promise<boolean> {
+    if (this._isInsideTransaction()) {
+      return this._insert(row) as never;
+    } else {
+      return this._lmdb.transaction(() => this._insert(row)) as never;
     }
   }
   update(
-    data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schema?.partial().parse(data);
-
-    try {
-      this._lmdb.getWriteTxnId();
-      return this._update(data) as never;
-    } catch (error) {
-      return this._lmdb.transaction(() => this._update(data)) as never;
-    }
-  }
-  upsert(
-    data: ROW,
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    if (this._lmdb.doesExist(data.id)) {
-      return this.update(data) as never;
+    row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
+  ): TX extends true ? boolean : Promise<boolean> {
+    if (this._isInsideTransaction()) {
+      return this._update(row) as never;
     } else {
-      return this.insert(data) as never;
+      return this._lmdb.transaction(() => this._update(row)) as never;
     }
   }
-  delete(
-    id: ROW["id"],
-  ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    try {
-      this._lmdb.getWriteTxnId();
+  upsert(row: ROW): TX extends true ? boolean : Promise<boolean> {
+    if (this._lmdb.doesExist(row.id)) {
+      return this.update(row) as never;
+    } else {
+      return this.insert(row) as never;
+    }
+  }
+  delete(id: ROW["id"]): TX extends true ? boolean : Promise<boolean> {
+    if (this._isInsideTransaction()) {
       return this._delete(id) as never;
-    } catch (error) {
+    } else {
       return this._lmdb.transaction(() => this._delete(id)) as never;
     }
   }
-  private _insert(data: ROW) {
-    if (this._lmdb.doesExist(data.id)) return false;
+  private _insert(row: ROW) {
+    if (this._lmdb.doesExist(row.id)) return false;
 
-    if (this.options?.triggers?.beforeInsert)
-      this.options.triggers.beforeInsert(this._db, data);
+    const parsed = this._schemaProvider.parse(row);
 
-    this._lmdb.put(data.id, data).then((r) => {
-      if (r) this._$insert?.push(data as ROW);
+    this._$beforeInsert?.push(parsed);
+
+    this._lmdb.put(parsed.id, parsed).then((r) => {
+      if (r) this._$afterInsert?.push(parsed);
     });
 
     return true;
   }
-  private _update(data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
-    const old = this._lmdb.get(data.id);
-    if (!old) return false;
+  private _update(row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
+    const Old = this._lmdb.get(row.id);
+    if (!Old) return false;
 
-    if (this.options?.triggers?.beforeUpdate)
-      this.options.triggers.beforeUpdate(this._db, data, old);
+    const parsed = this._schemaProvider.parse({ ...Old, ...row });
 
-    data = { ...old, ...data };
+    this._$beforeUpdate?.push({ New: parsed, Old });
 
-    this._lmdb.put(data.id, data as ROW).then((r) => {
-      if (r) this._$update?.push(data as ROW);
+    this._lmdb.put(parsed.id, parsed).then((r) => {
+      if (r) this._$afterUpdate?.push({ New: parsed, Old });
     });
 
     return true;
@@ -163,11 +154,10 @@ export class Table<
     const old = this._lmdb.get(id);
     if (!old) return false;
 
-    if (this.options?.triggers?.beforeDelete)
-      this.options.triggers.beforeDelete(this._db, old);
+    this._$beforeDelete?.push(old);
 
     this._lmdb.remove(old.id).then((r) => {
-      if (r) this._$delete?.push(old);
+      if (r) this._$afterDelete?.push(old);
     });
     return true;
   }
@@ -177,28 +167,7 @@ export class Table<
 }
 
 export namespace Table {
-  export type InferRow<T extends Table<any, any, any, any>> =
-    T extends Table<any, any, any, infer R> ? R : never;
-  export type Options<
-    DB extends Db<any, true>,
-    ROW extends Record<string, any>,
-  > = {
-    noValidation?: boolean;
-    triggers?: Triggers<DB, ROW>;
-  };
-
-  export type Triggers<
-    DB extends Db<any, true>,
-    ROW extends Record<string, any>,
-  > = {
-    beforeInsert?: (db: DB, data: ROW) => void;
-    beforeUpdate?: (
-      db: DB,
-      data: "id" extends keyof ROW
-        ? Partial<Omit<ROW, "id">> & Pick<ROW, "id">
-        : never,
-      old: ROW,
-    ) => void;
-    beforeDelete?: (db: DB, old: ROW) => void;
-  };
+  export type Row = Record<string, any> & { id: Key };
+  export type InferRow<T extends Table<any, any, any>> =
+    T extends Table<any, infer R, any> ? R : never;
 }
