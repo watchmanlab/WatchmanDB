@@ -1,12 +1,20 @@
+import type { Key } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
 import { z } from "zod";
 
-export function zodProvider<T extends z.ZodObject>(
-  schema: T,
-): SchemaProvider<T, z.output<T>> {
-  return {
-    schema,
-    parse: (data) => schema.parse(data),
-    partialParse: (data) => schema.partial().parse(data) as any,
-  };
+export class ZodProvider<
+  SCHEMA extends z.ZodObject<{ id: z.ZodType<Key> }>,
+> implements SchemaProvider<SCHEMA> {
+  define<S extends SCHEMA>(schema: S): S {
+    return schema;
+  }
+  parse<S extends SCHEMA>(data: unknown, schema: S): z.output<S> {
+    return schema.parse(data);
+  }
+  partialParse<S extends SCHEMA>(
+    data: unknown,
+    schema: S,
+  ): Partial<z.output<S>> {
+    return schema.partial().parse(data) as Partial<z.output<S>>;
+  }
 }
