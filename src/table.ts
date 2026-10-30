@@ -1,17 +1,14 @@
 import { Source, Stream } from "@watchmanlab/stream";
-import { open, type Database, type Key } from "lmdb";
-
+import type { Database, Key } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
-import { ZodSchema } from "./zod-schema";
-import z from "zod";
 
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
-  private _$beforeUpdate?: Stream<{ new: Readonly<ROW>; old: Readonly<ROW> }>;
-  private _$afterUpdate?: Stream<{ new: Readonly<ROW>; old: Readonly<ROW> }>;
+  private _$beforeUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
+  private _$afterUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
   private _$beforeDelete?: Stream<Readonly<ROW>>;
   private _$afterDelete?: Stream<Readonly<ROW>>;
 
@@ -25,10 +22,10 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   get $beforeInsert(): Source<Readonly<ROW>> {
     return Source.from((this._$beforeInsert ??= new Stream()));
   }
-  get $beforeUpdate(): Source<{ new: Readonly<ROW>; old: Readonly<ROW> }> {
+  get $beforeUpdate(): Source<{ New: Readonly<ROW>; Old: Readonly<ROW> }> {
     return Source.from((this._$beforeUpdate ??= new Stream()));
   }
-  get $afterUpdate(): Source<{ new: Readonly<ROW>; old: Readonly<ROW> }> {
+  get $afterUpdate(): Source<{ New: Readonly<ROW>; Old: Readonly<ROW> }> {
     return Source.from((this._$afterUpdate ??= new Stream()));
   }
   get $beforeDelete(): Source<Readonly<ROW>> {
@@ -140,15 +137,15 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     return true;
   }
   private _update(row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
-    const old = this._lmdb.get(row.id);
-    if (!old) return false;
+    const Old = this._lmdb.get(row.id);
+    if (!Old) return false;
 
-    const parsed = this._schemaProvider.parse({ ...old, ...row });
+    const parsed = this._schemaProvider.parse({ ...Old, ...row });
 
-    this._$beforeUpdate?.push({ new: parsed, old });
+    this._$beforeUpdate?.push({ New: parsed, Old });
 
     this._lmdb.put(parsed.id, parsed).then((r) => {
-      if (r) this._$afterUpdate?.push({ new: parsed, old });
+      if (r) this._$afterUpdate?.push({ New: parsed, Old });
     });
 
     return true;
@@ -174,15 +171,3 @@ export namespace Table {
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
 }
-
-const lmdb = open("", {});
-const table = new Table(
-  lmdb,
-  new ZodSchema({
-    id: z.string(),
-    name: z.string(),
-    age: z.number(),
-  }),
-);
-
-let v = table.insert({ id: "", name: "sof", age: 33 });
