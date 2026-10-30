@@ -7,10 +7,17 @@ import z from "zod";
 
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
+  private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
   private _$insert?: Stream<ROW>;
   private _$update?: Stream<ROW>;
   private _$delete?: Stream<ROW>;
-  private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
+  private _$beforeInsert?: Stream<{ new: ROW; rollback(): void }>;
+  private _$beforeUpdate?: Stream<{
+    new: ROW;
+    old: Readonly<ROW>;
+    rollback(): void;
+  }>;
+  private _$beforeDelete?: Stream<{ old: Readonly<ROW>; rollback(): void }>;
 
   constructor(
     lmdb: Database,
