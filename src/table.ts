@@ -1,10 +1,12 @@
 import { Source, Stream } from "@watchmanlab/stream";
 import type { Database, Key } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
+import type { Index } from "./index";
 
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
+  private _indexes: Index<this>[] = [];
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
   private _$beforeUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
@@ -34,57 +36,85 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   get $afterDelete(): Source<Readonly<ROW>> {
     return Source.from((this._$afterDelete ??= new Stream()));
   }
-
+  addIndex(index: Index<this>): void {
+    this._indexes.push(index);
+  }
   get(id: ROW["id"]): ROW | undefined {
     return this._lmdb.get(id);
   }
 
-  // find(query: Partial<Omit<ROW, "id">>): Source<ROW> {
-  //   const queryKeys = Object.keys(query) as Exclude<keyof ROW, "id">[];
-  //   if (queryKeys.length === 0)
-  //     return fromIterable(this._lmdb.getRange({}).map((e) => e.value));
+  find(query: Partial<Omit<ROW, "id">>): Source<ROW> {
+    const queryKeys = Object.keys(query) as string[];
 
-  //   if (this._indexes) {
-  //     for (const { columns, indexdb } of this._indexes) {
-  //       const matchesAll = columns.every((col) => queryKeys.includes(col));
-  //       if (matchesAll) {
-  //         const searchValues = columns
-  //           .map((col) => String(query[col]))
-  //           .join("\x00");
-  //         const indexRange = indexdb.getRange({
-  //           start: searchValues,
-  //           end: searchValues + "\xff",
-  //         });
+    // If no query parameters, fallback to full scan stream
+    if (queryKeys.length === 0) {
+      const scanStream = new Stream<ROW>();
+      const allEntries = [...this._lmdb.getRange({})];
+      queueMicrotask(() => {
+        for (const entry of allEntries) {
+          scanStream.push(entry.value as ROW);
+        }
+      });
+      return Source.from(scanStream);
+    }
 
-  //         const rowStream = new Stream<ROW>();
-  //         const entries = [...indexRange];
+    // 🔎 1. Attempt to match an index
+    for (const index of this._indexes) {
+      // Accessing internal components (exposed via getters on your Index class)
+      const idxCols = index.columns as string[];
+      const idxDb = index.lmdb;
 
-  //         queueMicrotask(() => {
-  //           for (const entry of entries) {
-  //             const row = this._lmdb.get(entry.value as any);
-  //             if (row) {
-  //               const passesRemainingFilters = queryKeys.every(
-  //                 (k) => String(row[k]) === String(query[k]),
-  //               );
-  //               if (passesRemainingFilters) rowStream.push(row);
-  //             }
-  //           }
-  //         });
-  //         return Source.from(rowStream);
-  //       }
-  //     }
-  //   }
+      // Check if this index completely satisfies all fields in the user query
+      const matchesAll = idxCols.every((col) => queryKeys.includes(col));
 
-  //   const scanStream = new Stream<ROW>();
-  //   const allEntries = [...this._lmdb.getRange({})];
-  //   queueMicrotask(() => {
-  //     for (const entry of allEntries) {
-  //       if (queryKeys.every((k) => String(entry.value[k]) === String(query[k])))
-  //         scanStream.push(entry.value);
-  //     }
-  //   });
-  //   return Source.from(scanStream);
-  // }
+      if (matchesAll) {
+        // Construct composite search key up to the index boundary
+        const searchValues = idxCols
+          .map((col) => String((query as any)[col]))
+          .join("\x00");
+
+        const indexRange = idxDb.getRange({
+          start: searchValues,
+          end: searchValues + "\xff",
+        });
+
+        const rowStream = new Stream<ROW>();
+        const entries = [...indexRange];
+
+        queueMicrotask(() => {
+          for (const entry of entries) {
+            // entry.value is the stored row.id pointing back to this table
+            const row = this.get(entry.value);
+            if (row) {
+              // Apply any residual query filters not covered by this specific index
+              const passesRemainingFilters = queryKeys.every(
+                (k) => String((row as any)[k]) === String((query as any)[k]),
+              );
+              if (passesRemainingFilters) rowStream.push(row);
+            }
+          }
+        });
+        return Source.from(rowStream);
+      }
+    }
+
+    // ⚠️ 2. Fallback: Full Table Scan (No matching index found)
+    const scanStream = new Stream<ROW>();
+    const allEntries = [...this._lmdb.getRange({})];
+    queueMicrotask(() => {
+      for (const entry of allEntries) {
+        const row = entry.value as ROW;
+        if (
+          queryKeys.every(
+            (k) => String((row as any)[k]) === String((query as any)[k]),
+          )
+        ) {
+          scanStream.push(row);
+        }
+      }
+    });
+    return Source.from(scanStream);
+  }
 
   private _isInsideTransaction(): boolean {
     try {
