@@ -10,7 +10,7 @@ export class ZodSchema<
   constructor(shape: SHAPE) {
     super(z.object(shape));
   }
-  override parse(data: unknown): z.output<z.ZodObject<SHAPE>> {
-    return this.schema.parse(data);
+  override parse(data: unknown): Readonly<z.output<z.ZodObject<SHAPE>>> {
+    return Object.freeze(this.schema.parse(data));
   }
 }

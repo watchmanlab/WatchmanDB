@@ -1,6 +1,6 @@
 import { Source, Stream } from "@watchmanlab/stream";
 import { open, type Database, type Key } from "lmdb";
-import type { Db } from "./db";
+
 import type { SchemaProvider } from "./schema-provider";
 import { ZodSchema } from "./zod-schema";
 import z from "zod";
@@ -8,34 +8,34 @@ import z from "zod";
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
-  private _$insert?: Stream<ROW>;
-  private _$update?: Stream<ROW>;
-  private _$delete?: Stream<ROW>;
-  private _$beforeInsert?: Stream<{ new: ROW; rollback(): void }>;
-  private _$beforeUpdate?: Stream<{
-    new: ROW;
-    old: Readonly<ROW>;
-    rollback(): void;
-  }>;
-  private _$beforeDelete?: Stream<{ old: Readonly<ROW>; rollback(): void }>;
+  private _$beforeInsert?: Stream<Readonly<ROW>>;
+  private _$afterInsert?: Stream<Readonly<ROW>>;
+  private _$beforeUpdate?: Stream<{ new: Readonly<ROW>; old: Readonly<ROW> }>;
+  private _$afterUpdate?: Stream<{ new: Readonly<ROW>; old: Readonly<ROW> }>;
+  private _$beforeDelete?: Stream<Readonly<ROW>>;
+  private _$afterDelete?: Stream<Readonly<ROW>>;
 
-  constructor(
-    lmdb: Database,
-    schemaProvider: SchemaProvider<SCHEMA, ROW>,
-    private options?: Table.Options,
-  ) {
+  constructor(lmdb: Database, schemaProvider: SchemaProvider<SCHEMA, ROW>) {
     this._lmdb = lmdb;
-
     this._schemaProvider = schemaProvider;
   }
-  get $insert() {
-    return Source.from((this._$insert ??= new Stream()));
+  get $afterInsert(): Source<Readonly<ROW>> {
+    return Source.from((this._$afterInsert ??= new Stream()));
   }
-  get $update() {
-    return Source.from((this._$update ??= new Stream()));
+  get $beforeInsert(): Source<Readonly<ROW>> {
+    return Source.from((this._$beforeInsert ??= new Stream()));
   }
-  get $delete() {
-    return Source.from((this._$delete ??= new Stream()));
+  get $beforeUpdate(): Source<{ new: Readonly<ROW>; old: Readonly<ROW> }> {
+    return Source.from((this._$beforeUpdate ??= new Stream()));
+  }
+  get $afterUpdate(): Source<{ new: Readonly<ROW>; old: Readonly<ROW> }> {
+    return Source.from((this._$afterUpdate ??= new Stream()));
+  }
+  get $beforeDelete(): Source<Readonly<ROW>> {
+    return Source.from((this._$beforeDelete ??= new Stream()));
+  }
+  get $afterDelete(): Source<Readonly<ROW>> {
+    return Source.from((this._$afterDelete ??= new Stream()));
   }
 
   get(id: ROW["id"]): ROW | undefined {
@@ -89,64 +89,66 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   //   return Source.from(scanStream);
   // }
 
-  insert(data: ROW): TX extends true ? boolean : Promise<boolean> {
+  private _isInsideTransaction(): boolean {
     try {
-      this._lmdb.getWriteTxnId();
-      return this._insert(data) as never;
-    } catch (error: any) {
-      return this._lmdb.transaction(() => this._insert(data)) as never;
+      return this._lmdb.getWriteTxnId() > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+  insert(row: ROW): TX extends true ? boolean : Promise<boolean> {
+    if (this._isInsideTransaction()) {
+      return this._insert(row) as never;
+    } else {
+      return this._lmdb.transaction(() => this._insert(row)) as never;
     }
   }
   update(
-    data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
+    row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
   ): TX extends true ? boolean : Promise<boolean> {
-    try {
-      this._lmdb.getWriteTxnId();
-      return this._update(data) as never;
-    } catch (error) {
-      return this._lmdb.transaction(() => this._update(data)) as never;
+    if (this._isInsideTransaction()) {
+      return this._update(row) as never;
+    } else {
+      return this._lmdb.transaction(() => this._update(row)) as never;
     }
   }
-  upsert(data: ROW): TX extends true ? boolean : Promise<boolean> {
-    if (this._lmdb.doesExist(data.id)) {
-      return this.update(data) as never;
+  upsert(row: ROW): TX extends true ? boolean : Promise<boolean> {
+    if (this._lmdb.doesExist(row.id)) {
+      return this.update(row) as never;
     } else {
-      return this.insert(data) as never;
+      return this.insert(row) as never;
     }
   }
   delete(id: ROW["id"]): TX extends true ? boolean : Promise<boolean> {
-    try {
-      this._lmdb.getWriteTxnId();
+    if (this._isInsideTransaction()) {
       return this._delete(id) as never;
-    } catch (error) {
+    } else {
       return this._lmdb.transaction(() => this._delete(id)) as never;
     }
   }
-  private _insert(data: ROW) {
-    if (this._lmdb.doesExist(data.id)) return false;
+  private _insert(row: ROW) {
+    if (this._lmdb.doesExist(row.id)) return false;
 
-    // this.options?.triggers?.beforeInsert?.(this._db, data);
+    const parsed = this._schemaProvider.parse(row);
 
-    const parsed = Object.freeze(this._schemaProvider.parse(data));
+    this._$beforeInsert?.push(parsed);
 
     this._lmdb.put(parsed.id, parsed).then((r) => {
-      if (r) this._$insert?.push(parsed);
+      if (r) this._$afterInsert?.push(parsed);
     });
 
     return true;
   }
-  private _update(data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
-    const old = this._lmdb.get(data.id);
+  private _update(row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
+    const old = this._lmdb.get(row.id);
     if (!old) return false;
 
-    // this.options?.triggers?.beforeUpdate?.(this._db, data, old);
+    const parsed = this._schemaProvider.parse({ ...old, ...row });
 
-    const parsed = Object.freeze(
-      this._schemaProvider.parse({ ...old, ...data }),
-    );
+    this._$beforeUpdate?.push({ new: parsed, old });
 
     this._lmdb.put(parsed.id, parsed).then((r) => {
-      if (r) this._$update?.push(parsed);
+      if (r) this._$afterUpdate?.push({ new: parsed, old });
     });
 
     return true;
@@ -155,10 +157,10 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     const old = this._lmdb.get(id);
     if (!old) return false;
 
-    // this?.options?.triggers?.beforeDelete?.(this._db, old);
+    this._$beforeDelete?.push(old);
 
     this._lmdb.remove(old.id).then((r) => {
-      if (r) this._$delete?.push(old);
+      if (r) this._$afterDelete?.push(old);
     });
     return true;
   }
@@ -171,19 +173,6 @@ export namespace Table {
   export type Row = Record<string, any> & { id: Key };
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
-  export type Options = {
-    ignoreValidation?: boolean;
-  };
-
-  export type Triggers<DB extends Db<any, true>, ROW extends Row> = {
-    beforeInsert?: (db: DB, data: ROW) => void;
-    beforeUpdate?: (
-      db: DB,
-      data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
-      old: ROW,
-    ) => void;
-    beforeDelete?: (db: DB, old: ROW) => void;
-  };
 }
 
 const lmdb = open("", {});
