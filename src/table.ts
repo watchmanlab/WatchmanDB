@@ -1,32 +1,30 @@
 import { Source, Stream } from "@watchmanlab/stream";
-import type { Database } from "lmdb";
+import type { Database, Key } from "lmdb";
 import type { Db } from "./db";
+import type { SchemaProvider } from "./schema-provider";
 
 type InTransaction<DB extends Db<any, any>> =
   DB extends Db<any, infer TX> ? (TX extends true ? true : false) : never;
-export class Table<
-  NAME extends string,
-  DB extends Db<any, true>,
-  SCHEMA,
-  ROW extends Record<string, any>,
-> {
+export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   private _db: DB;
   private _lmdb: Database<ROW>;
   private _$insert?: Stream<ROW>;
   private _$update?: Stream<ROW>;
   private _$delete?: Stream<ROW>;
-  private _schema?: SCHEMA;
+  private _schema: SCHEMA;
+  private _schemaProvider: SchemaProvider<SCHEMA>;
 
   constructor(
     db: DB,
     lmdb: Database,
     schema: SCHEMA,
+    schemaProvider: SchemaProvider<SCHEMA>,
     private options?: Table.Options<DB, ROW>,
   ) {
     this._db = db;
     this._lmdb = lmdb;
-
-    this._schema = options?.noValidation ? undefined : schema;
+    this._schema = schema;
+    this._schemaProvider = schemaProvider;
   }
   get $insert() {
     return Source.from((this._$insert ??= new Stream()));
@@ -92,7 +90,7 @@ export class Table<
   insert(
     data: ROW,
   ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schema?.parse(data);
+    this._schemaProvider.parse(data, this._schema);
 
     try {
       this._lmdb.getWriteTxnId();
@@ -104,7 +102,7 @@ export class Table<
   update(
     data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
   ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schema?.partial().parse(data);
+    this._schemaProvider.partialParse(data, this._schema);
 
     try {
       this._lmdb.getWriteTxnId();
@@ -135,8 +133,7 @@ export class Table<
   private _insert(data: ROW) {
     if (this._lmdb.doesExist(data.id)) return false;
 
-    if (this.options?.triggers?.beforeInsert)
-      this.options.triggers.beforeInsert(this._db, data);
+    this.options?.triggers?.beforeInsert?.(this._db, data);
 
     this._lmdb.put(data.id, data).then((r) => {
       if (r) this._$insert?.push(data as ROW);
@@ -148,8 +145,7 @@ export class Table<
     const old = this._lmdb.get(data.id);
     if (!old) return false;
 
-    if (this.options?.triggers?.beforeUpdate)
-      this.options.triggers.beforeUpdate(this._db, data, old);
+    this.options?.triggers?.beforeUpdate?.(this._db, data, old);
 
     data = { ...old, ...data };
 
@@ -163,8 +159,7 @@ export class Table<
     const old = this._lmdb.get(id);
     if (!old) return false;
 
-    if (this.options?.triggers?.beforeDelete)
-      this.options.triggers.beforeDelete(this._db, old);
+    this?.options?.triggers?.beforeDelete?.(this._db, old);
 
     this._lmdb.remove(old.id).then((r) => {
       if (r) this._$delete?.push(old);
@@ -177,26 +172,19 @@ export class Table<
 }
 
 export namespace Table {
-  export type InferRow<T extends Table<any, any, any, any>> =
-    T extends Table<any, any, any, infer R> ? R : never;
-  export type Options<
-    DB extends Db<any, true>,
-    ROW extends Record<string, any>,
-  > = {
-    noValidation?: boolean;
+  export type Row = Record<string, any> & { id: Key };
+  export type InferRow<T extends Table<any, any, any>> =
+    T extends Table<any, any, infer R> ? R : never;
+  export type Options<DB extends Db<any, true>, ROW extends Row> = {
+    ignoreValidation?: boolean;
     triggers?: Triggers<DB, ROW>;
   };
 
-  export type Triggers<
-    DB extends Db<any, true>,
-    ROW extends Record<string, any>,
-  > = {
+  export type Triggers<DB extends Db<any, true>, ROW extends Row> = {
     beforeInsert?: (db: DB, data: ROW) => void;
     beforeUpdate?: (
       db: DB,
-      data: "id" extends keyof ROW
-        ? Partial<Omit<ROW, "id">> & Pick<ROW, "id">
-        : never,
+      data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
       old: ROW,
     ) => void;
     beforeDelete?: (db: DB, old: ROW) => void;
