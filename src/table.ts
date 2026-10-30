@@ -7,7 +7,7 @@ type InTransaction<DB extends Db<any, any>> =
   DB extends Db<any, infer TX> ? (TX extends true ? true : false) : never;
 export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   private _db: DB;
-  private _lmdb: Database<ROW>;
+  private _lmdb: Database<Readonly<ROW>>;
   private _$insert?: Stream<ROW>;
   private _$update?: Stream<ROW>;
   private _$delete?: Stream<ROW>;
@@ -90,8 +90,6 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   insert(
     data: ROW,
   ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schemaProvider.parse(data, this._schema);
-
     try {
       this._lmdb.getWriteTxnId();
       return this._insert(data) as never;
@@ -102,8 +100,6 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
   update(
     data: Partial<Omit<ROW, "id">> & Pick<ROW, "id">,
   ): InTransaction<DB> extends true ? boolean : Promise<boolean> {
-    this._schemaProvider.partialParse(data, this._schema);
-
     try {
       this._lmdb.getWriteTxnId();
       return this._update(data) as never;
@@ -135,7 +131,11 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
 
     this.options?.triggers?.beforeInsert?.(this._db, data);
 
-    this._lmdb.put(data.id, data).then((r) => {
+    const parsed = Object.freeze(
+      this._schemaProvider.parse(data, this._schema),
+    );
+
+    this._lmdb.put(parsed.id, parsed as ROW).then((r) => {
       if (r) this._$insert?.push(data as ROW);
     });
 
@@ -149,8 +149,12 @@ export class Table<DB extends Db<any, true>, SCHEMA, ROW extends Table.Row> {
 
     data = { ...old, ...data };
 
-    this._lmdb.put(data.id, data as ROW).then((r) => {
-      if (r) this._$update?.push(data as ROW);
+    const parsed = Object.freeze(
+      this._schemaProvider.parse(data, this._schema),
+    );
+
+    this._lmdb.put(parsed.id, parsed as ROW).then((r) => {
+      if (r) this._$update?.push(parsed as ROW);
     });
 
     return true;

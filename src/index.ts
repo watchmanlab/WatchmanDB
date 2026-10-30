@@ -1,17 +1,24 @@
+import type { Database } from "lmdb";
 import type { Db } from "./db";
 import type { Table } from "./table";
 
-export class Index<DB extends Db<any>,TABLE extends Table<any,any>> {
-
-    private _db:DB
-  constructor(db:DB,table:) {
-
-    this._db = db
+export class Index<
+  DB extends Db<any, true>,
+  TABLE extends Table<DB, any, any>,
+  ROW extends Table.InferRow<TABLE> = Table.InferRow<TABLE>,
+> {
+  private _lmdb: Database;
+  private _table: TABLE;
+  private _columns: (keyof ROW)[];
+  constructor(lmdb: Database, table: TABLE, columns: (keyof ROW)[]) {
+    this._lmdb = lmdb;
+    this._table = table;
+    this._columns = columns;
   }
 
   private _makeIndexKey(
-    data: ROW,
-    columns: Exclude<keyof ROW, "id">[],
+    data: Table.Row,
+    columns: Exclude<keyof Table.Row, "id">[],
   ): string {
     const values = columns.map((col) => String(data[col]));
     return [...values, String(data.id)].join("\x00");
@@ -47,4 +54,18 @@ export class Index<DB extends Db<any>,TABLE extends Table<any,any>> {
       }
     }
   }
+}
+
+export namespace Index {
+  export type InferIndex<T extends string, U extends string = T> = [T] extends [
+    never,
+  ]
+    ? ""
+    : T extends any
+      ?
+          | T
+          | (InferIndex<Exclude<U, T>> extends ""
+              ? never
+              : `${T}:${InferIndex<Exclude<U, T>>}`)
+      : never;
 }

@@ -11,10 +11,4 @@ export class ZodProvider<
   parse<S extends SCHEMA>(data: unknown, schema: S): z.output<S> {
     return schema.parse(data);
   }
-  partialParse<S extends SCHEMA>(
-    data: unknown,
-    schema: S,
-  ): Partial<z.output<S>> {
-    return schema.partial().parse(data) as Partial<z.output<S>>;
-  }
 }

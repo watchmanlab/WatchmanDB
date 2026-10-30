@@ -8,15 +8,7 @@ import {
 } from "lmdb";
 import { z } from "zod";
 import type { Table } from "./table";
-type IndexCombine<T extends string, U extends string = T> = [T] extends [never]
-  ? ""
-  : T extends any
-    ?
-        | T
-        | (IndexCombine<Exclude<U, T>> extends ""
-            ? never
-            : `${T}:${IndexCombine<Exclude<U, T>>}`)
-    : never;
+
 export type Index<ROW extends Record<string, any>, K extends string> = {
   includes?: Exclude<keyof ROW, K>[];
   filter?: (row: ROW) => boolean;
