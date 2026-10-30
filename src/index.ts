@@ -16,8 +16,16 @@ export class Index<
     table.$beforeInsert.pipe(listen((row) => this._insert(row)));
     table.$beforeUpdate.pipe(listen(({ New, Old }) => this._update(New, Old)));
     table.$beforeDelete.pipe(listen((row) => this._delete(row)));
+
+    table.addIndex(this);
   }
 
+  get lmdb() {
+    return this._lmdb;
+  }
+  get columns() {
+    return this._columns;
+  }
   private _makeIndexKey(row: ROW): string {
     const values = this._columns.map((col) => String(row[col]));
     return [...values, String(row.id)].join("\x00");
