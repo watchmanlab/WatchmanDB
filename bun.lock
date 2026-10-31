@@ -5,16 +5,16 @@
     "": {
       "name": "db",
       "dependencies": {
-        "@watchmanlab/stream": "^0.3.2",
+        "@watchmanlab/stream": "^0.3.3",
         "lmdb": "^3.5.9",
-        "typebox": "^1.4.3",
-        "zod": "^4.6.7",
       },
       "devDependencies": {
         "@types/bun": "latest",
       },
       "peerDependencies": {
+        "typebox": "^1.4.3",
         "typescript": "^7",
+        "zod": "^4.6.7",
       },
     },
   },
@@ -91,7 +91,7 @@
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
-    "@watchmanlab/stream": ["@watchmanlab/stream@0.3.2", "", {}, "sha512-TaGjkMXpzag7Oy9hVbZuTU4WjD6y5e2Xz9ly5Xltcd+yARSI7Ox0BRfWcgJbjcpwQkN2jNYdpAo03JpxQjwPOQ=="],
+    "@watchmanlab/stream": ["@watchmanlab/stream@0.3.3", "", {}, "sha512-5UnjhcZWL0zi815yBmLJoemWoEs2NpPT+i8RDrUfTWctCd05X2t3wNFNdXKt5ZrUZlWkGPOouek/jUgP+JxmqA=="],
 
     "bun-types": ["bun-types@1.4.4", "", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 

@@ -1,9 +1,26 @@
 {
-  "name": "@watchmanlab/stream",
-  "module": "index.ts",
+  "name": "WatchmanDB",
+  "version": "0.1.0",
+  "description": "Ultra-high-performance multi-paradigm embedded database engine over LMDB",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "scripts": {
-    "typecheck": "bun check"
+    "build:js": "bun build ./src/index.ts --outdir ./dist --target node && bun build ./src/index.ts --outfile ./dist/index.cjs --target node",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "build": "rm -rf dist && bun run build:js && bun run build:types",
+    "prepublishOnly": "bun run build"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -14,7 +31,17 @@
     "zod": "^4.6.7"
   },
   "dependencies": {
-    "@watchmanlab/stream": "^0.3.2",
+    "@watchmanlab/stream": "^0.3.3",
     "lmdb": "^3.5.9"
-  }
+  },
+  "keywords": [
+    "database",
+    "embedded",
+    "lmdb",
+    "reactive",
+    "stream",
+    "performance"
+  ],
+  "author": "WatchmanLab",
+  "license": "MIT"
 }
