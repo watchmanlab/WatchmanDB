@@ -1,16 +1,17 @@
 import type { Key } from "lmdb";
-import { SchemaProvider } from "./schema-provider";
+import type { SchemaProvider } from "./schema-provider";
 import { z } from "zod";
 
 export class ZodSchema<
   SHAPE extends {
     readonly id: z.ZodType<Key>;
   },
-> extends SchemaProvider<z.ZodObject<SHAPE>, z.output<z.ZodObject<SHAPE>>> {
+> implements SchemaProvider<z.ZodObject<SHAPE>, z.output<z.ZodObject<SHAPE>>> {
+  schema: z.ZodObject<SHAPE, z.core.$strip>;
   constructor(shape: SHAPE) {
-    super(z.object(shape));
+    this.schema = z.object(shape);
   }
-  override parse(data: unknown): Readonly<z.output<z.ZodObject<SHAPE>>> {
+  parse(data: unknown): Readonly<z.output<z.ZodObject<SHAPE>>> {
     return Object.freeze(this.schema.parse(data));
   }
   looseObject() {

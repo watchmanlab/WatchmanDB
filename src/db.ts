@@ -39,14 +39,22 @@ export function create<DB_SCHEMA extends DbSchema>(config: {
   path: `${string}.mdb`;
   dbSchema: DB_SCHEMA;
   indexes?: Indexes<DB_SCHEMA>;
+  options?: Omit<RootDatabaseOptions, "maxDbs">;
 }): Db<DB_SCHEMA> {
-  const env = open(config.path, {});
+  const env = open(config.path, {
+    ...config.options,
+    maxDbs:
+      Object.keys(config.dbSchema).length +
+      Object.values(config.indexes ?? {}).flat().length,
+  });
   env.readerCheck();
+
   const db: Db<DB_SCHEMA> = {
     tables: Object.fromEntries(
       Object.entries(config.dbSchema).map(([tableName, tableSchema]) => [
         tableName,
         new Table(
+          tableName,
           env.openDB({ name: tableName }),
           tableSchema,
           config.indexes?.[tableName]?.map(
@@ -70,35 +78,3 @@ export function create<DB_SCHEMA extends DbSchema>(config: {
 
   return db;
 }
-try {
-  await Bun.file("test.mdb").unlink();
-  await Bun.file("test.mdb-lock").unlink();
-} catch (error) {}
-
-const db = create({
-  path: "test.mdb",
-  dbSchema: {
-    user: new ZodSchema({
-      id: z.string(),
-      name: z.string(),
-      age: z.number(),
-    }).looseObject(),
-    apply: new ZodSchema({
-      id: z.number(),
-      userId: z.string(),
-      price: z.number(),
-    }),
-  },
-  indexes: {
-    // user: [["age"], ["age", "name"]],
-    // apply: [["price"], ["userId", "price"]],
-  },
-});
-
-await db.transaction((db) => {
-  db.tables.user.insert({ id: "a", name: "sof", age: 44 });
-  db.tables.user.insert({ id: "b", name: "dahmounth", age: 33 });
-  // db.tables.apply.insert({ id: 123, userId: "a", price: 200 });
-});
-
-db.tables.user.find({ name: "dahmounth" }).pipe(toConsole());
