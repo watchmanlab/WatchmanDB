@@ -7,103 +7,98 @@ import {
   type RootDatabaseOptions,
 } from "lmdb";
 import { z } from "zod";
-import type { Table } from "./table";
+import { Table } from "./table";
+import type { SchemaProvider } from "./schema-provider";
+import { Index } from "./index";
+import { ZodSchema } from "./zod-schema";
+import { toConsole } from "@watchmanlab/stream";
 
-export type Index<ROW extends Record<string, any>, K extends string> = {
-  includes?: Exclude<keyof ROW, K>[];
-  filter?: (row: ROW) => boolean;
-};
-export type Indexes<ROW extends Record<string, any>> = {
-  [K in keyof ROW extends string ? IndexCombine<keyof ROW> : never]?: Index<
-    ROW,
-    K
-  >;
-};
+export type DbSchema = { [K: string]: SchemaProvider<any, any> };
 
 export type Tables<DB_SCHEMA extends DbSchema, TX extends boolean = false> = {
   [K in keyof DB_SCHEMA]: Table<
-    Db<DB_SCHEMA, TX>,
-    z.ZodObject<DB_SCHEMA[K]>,
+    DB_SCHEMA[K],
+    SchemaProvider.InferOutput<DB_SCHEMA[K]>,
     TX
   >;
 };
-export type DbSchema = { [K: string]: TableSchema };
+
+export type Indexes<DB_SCHEMA extends DbSchema> = {
+  [K in keyof DB_SCHEMA]?: Exclude<
+    keyof SchemaProvider.InferOutput<DB_SCHEMA[K]>,
+    "id"
+  >[][];
+};
 export type Db<DB_SCHEMA extends DbSchema, TX extends boolean = false> = {
   tables: Tables<DB_SCHEMA, TX>;
-} & ([TX] extends [never]
+} & (TX extends false
   ? { transaction<T>(fn: (db: Db<DB_SCHEMA, true>) => T): Promise<T> }
   : {});
-export type TablesOptions<DB_SCHEMA extends DbSchema> = {
-  [K in keyof DB_SCHEMA]?: Table.Options<
-    Db<DB_SCHEMA, true>,
-    z.ZodObject<DB_SCHEMA[K]>
-  >;
-};
-export type DbOptions<DB_SCHEMA extends DbSchema> = {
-  tables?: TablesOptions<DB_SCHEMA>;
-  noValidation?: boolean;
-  advance?: RootDatabaseOptions;
-};
-export function create<DB_SCHEMA extends DbSchema>(
-  path: string,
-  dbSchema: DB_SCHEMA,
-  options?: DbOptions<DB_SCHEMA>,
-): Db<DB_SCHEMA> {
-  const env = open(path, {});
-  env.readerCheck();
 
+export function create<DB_SCHEMA extends DbSchema>(config: {
+  path: `${string}.mdb`;
+  dbSchema: DB_SCHEMA;
+  indexes?: Indexes<DB_SCHEMA>;
+}): Db<DB_SCHEMA> {
+  const env = open(config.path, {});
+  env.readerCheck();
   const db: Db<DB_SCHEMA> = {
     tables: Object.fromEntries(
-      Object.entries(dbSchema).map(([tableName, tableSchema]) => [
+      Object.entries(config.dbSchema).map(([tableName, tableSchema]) => [
         tableName,
         new Table(
-          db,
-          tableName,
-          env,
-          z.object(tableSchema),
-          options?.tables[tableName],
+          env.openDB({ name: tableName }),
+          tableSchema,
+          config.indexes?.[tableName]?.map(
+            (cols) =>
+              new Index(
+                env.openDB({
+                  name: ["index", ...cols, tableName].join("\x00"),
+                }),
+                cols,
+              ),
+          ),
         ),
       ]),
-    ),
+    ) as Tables<DB_SCHEMA>,
+
     transaction(fn) {
-      return env.transaction(() => fn(db));
+      const { transaction, ...rest } = db;
+      return env.transaction(() => fn(rest as never));
     },
   };
 
   return db;
 }
+try {
+  await Bun.file("test.mdb").unlink();
+  await Bun.file("test.mdb-lock").unlink();
+} catch (error) {}
 
-const db = create(
-  "./db.mdb",
-  {
-    user: {
+const db = create({
+  path: "test.mdb",
+  dbSchema: {
+    user: new ZodSchema({
       id: z.string(),
       name: z.string(),
-      age: z.number().min(4).max(200),
-    },
-    apply: {
+      age: z.number(),
+    }),
+    apply: new ZodSchema({
       id: z.number(),
       userId: z.string(),
-      price: z.number().optional(),
-    },
+      price: z.number(),
+    }),
   },
-  {
-    tables: {
-      user: {
-        indexes: {
-          "name:age": {
-            includes: ["name"],
-            filter: (row) => row.age > 18,
-          },
-        },
-        triggers: {
-          beforeInsert(db, data) {},
-        },
-      },
-    },
+  indexes: {
+    // user: [["age"], ["age", "name"]],
+    // apply: [["price"], ["userId", "price"]],
   },
-);
-
-db.transaction((tx) => {
-  tx.tables.user.update({ id: "" });
 });
+
+await db.transaction((db) => {
+  db.tables.user.insert({ id: "a", name: "sof", age: 44 });
+  db.tables.user.insert({ id: "b", name: "dahmounth", age: 33 });
+  // db.tables.apply.insert({ id: 123, userId: "a", price: 200 });
+});
+
+db.tables.user.find({ name: "sof" }).pipe(toConsole());
