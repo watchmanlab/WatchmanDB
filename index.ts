@@ -1,21 +1,31 @@
 import z from "zod";
 import { Db } from "./src/db";
 import { ZodSchema } from "./src/zod-schema";
-import { toConsole } from "@watchmanlab/stream";
+import {
+  listen,
+  resolve,
+  toConsole,
+  delay,
+  tapTerminate,
+  fromIterable,
+} from "@watchmanlab/stream";
+import { TypBoxSchema } from "./src";
+import Type from "typebox";
+import {} from "bun";
 
 try {
   await Bun.file("test.mdb").unlink();
   await Bun.file("test.mdb-lock").unlink();
 } catch (error) {}
-
+//
 const db = Db.create({
   path: "test.mdb",
   dbSchema: {
-    user: new ZodSchema({
-      id: z.string(),
-      name: z.string(),
-      age: z.number(),
-    }).looseObject(),
+    user: new TypBoxSchema({
+      id: Type.Number(),
+      name: Type.String(),
+      age: Type.Number(),
+    }),
     apply: new ZodSchema({
       id: z.number(),
       userId: z.string(),
@@ -23,17 +33,27 @@ const db = Db.create({
     }),
   },
   indexes: {
-    user: [["age"], ["name", "age"]],
-    apply: [["price"], ["userId", "price"]],
+    // user: [["age"], ["name", "age"]],
+    // apply: [["price"], ["userId", "price"]],
   },
 });
 
+console.time("insert");
 await db.transaction((db) => {
-  db.tables.user.insert({ id: "a", name: "sof", age: 42 });
-  db.tables.user.insert({ id: "b", name: "dahmounth", age: 33 });
-  db.tables.user.insert({ id: "c", name: "yanis", age: 6 });
-  db.tables.user.insert({ id: "d", name: "iline", age: 9 });
-  // db.tables.apply.insert({ id: 123, userId: "a", price: 200 });
+  for (let i = 1; i <= 250_000; i++) {
+    db.tables.user.insert({ id: i, name: `${i}-sof`, age: i });
+  }
 });
+console.timeEnd("insert"); //[983.52ms] how long????
 
-db.tables.user.find().pipe(toConsole());
+console.time("find");
+
+for (const user of db.tables.user.find()) {
+  //   await new Promise((r) => setTimeout(r, 10));
+  //   console.log(user.id);
+}
+console.timeEnd("find");
+
+// db.tables.user.find().pipe(toConsole());
+
+// console.log(db.env.getStats());

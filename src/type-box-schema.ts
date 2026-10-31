@@ -1,24 +1,21 @@
-import { Compile } from "typebox/compile";
-import { Type } from "typebox";
-import type { SchemaProvider } from "./schema-provider";
-import type { Key } from "lmdb";
+import Type from "typebox";
+import Schema from "typebox/schema";
+import type { SchemaProvider } from "./schema-provider.js";
 
-export function typeboxProvider<
-  T extends Type.TObject<{ id: Type.TUnsafe<Key> }>,
->(schema: T): SchemaProvider<T, Type.Static<T>> {
-  const compiler = Compile(schema);
-  const compilerPartial = Compile(Type.Partial(schema));
-  return {
-    schema,
-    parse: (data) => {
-      if (compiler.Check(data)) return data as Type.Static<T>;
-      throw new Error(compiler.Errors(data)[0]?.message || "Validation failed");
-    },
-    partialParse: (data) => {
-      if (compilerPartial.Check(data)) return data as Partial<Type.Static<T>>;
-      throw new Error(
-        compilerPartial.Errors(data)[0]?.message || "Validation failed",
-      );
-    },
-  };
+export class TypBoxSchema<
+  SHAPE extends { readonly id: Type.TString | Type.TNumber },
+> implements SchemaProvider<
+  Type.TObject<SHAPE>,
+  Type.Static<Type.TObject<SHAPE>>
+> {
+  schema: Type.TObject<SHAPE>;
+  private validator: Schema.Validator;
+  constructor(shape: SHAPE, options?: Type.TObjectOptions) {
+    this.schema = Type.Object(shape, options);
+
+    this.validator = Schema.Compile(this.schema);
+  }
+  parse(data: unknown): Readonly<Type.Static<Type.TObject<SHAPE>>> {
+    return this.validator.Parse(data) as never;
+  }
 }

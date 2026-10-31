@@ -1,7 +1,15 @@
-import { filter, fromIterable, map, Source, Stream } from "@watchmanlab/stream";
+import {
+  delay,
+  filter,
+  fromIterable,
+  map,
+  Source,
+  Stream,
+  terminate,
+} from "@watchmanlab/stream";
 import type { Database, Key } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
-import type { Index } from "./index";
+import type { Index } from "./table-index";
 
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _name: string;
@@ -53,22 +61,19 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
-      return fromIterable(this._lmdb.getRange({})).pipe(map((e) => e.value));
+      return fromIterable(this._lmdb.getRange()).pipe(map((e) => e.value));
 
     if (this._indexes) {
       for (const index of this._indexes) {
         const source = index.find(query);
         if (!source) continue;
 
-        return source
-          .pipe(map((id) => this.get(id)))
-          .pipe(
-            filter((row) =>
-              queryKeys.every(
-                (k) => String((row as any)[k]) === String((query as any)[k]),
-              ),
-            ),
-          );
+        return source.pipe(map((id) => this.get(id))).pipe(
+          filter((row) => {
+            if (!row) return false;
+            return queryKeys.every((k) => row[k] === query[k]);
+          }),
+        );
       }
     }
 

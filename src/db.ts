@@ -1,19 +1,11 @@
-import {
-  open,
-  Database,
-  RootDatabase,
-  type Key,
-  type DatabaseOptions,
-  type RootDatabaseOptions,
-} from "lmdb";
-import { keyof, object, z } from "zod";
-import { Table } from "./table";
-import type { SchemaProvider } from "./schema-provider";
-import { Index } from "./index";
-import { ZodSchema } from "./zod-schema";
-import { toConsole } from "@watchmanlab/stream";
+import { open, type RootDatabase, type RootDatabaseOptions } from "lmdb";
+
+import { Table } from "./table.js";
+import type { SchemaProvider } from "./schema-provider.js";
+import { Index } from "./table-index.js";
 
 export type Db<DB_SCHEMA extends Db.DbSchema, TX extends boolean = false> = {
+  env: RootDatabase;
   tables: Db.Tables<DB_SCHEMA, TX>;
 } & (TX extends false
   ? { transaction<T>(fn: (db: Db<DB_SCHEMA, true>) => T): Promise<T> }
@@ -41,7 +33,7 @@ export namespace Db {
     path: `${string}.mdb`;
     dbSchema: DB_SCHEMA;
     indexes?: Indexes<DB_SCHEMA>;
-    options?: Omit<RootDatabaseOptions, "maxDbs">;
+    options?: Omit<RootDatabaseOptions, "maxDbs" | "dupSort" | "useVersions">;
   };
   export function create<DB_SCHEMA extends DbSchema>(
     config: Config<DB_SCHEMA>,
@@ -55,9 +47,13 @@ export namespace Db {
     env.readerCheck();
 
     const db: Db<DB_SCHEMA> = {
+      env,
       tables: Object.fromEntries(
         Object.entries(config.dbSchema).map(([tableName, tableSchema]) => {
-          const tableDb = env.openDB({ name: tableName });
+          const tableDb = env.openDB({
+            name: tableName,
+            sharedStructuresKey: Symbol.for(tableName),
+          });
           return [
             tableName,
             new Table(
