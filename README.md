@@ -15,11 +15,13 @@ WatchmanDB splits its surface API.
 - **Outside Transactions:** Operations are asynchronous and return standard `Promise<boolean>` wrappers.
 - **Inside Transaction Blocks:** The engine strips away the Promise allocation overhead completely. Operations return immediate, raw, synchronous `boolean` results inside the hot execution loop, unleashing maximum throughput.
 
-### 2. Dual-Paradigm: Key/Value Speed + Relational Power
+### 2.Multi-Paradigm Adaptability
 
-WatchmanDB drops database query parsers, query execution planners, and SQL DSL layers.
+WatchmanDB handles structural shifts effortlessly, supporting multiple data paradigms simultaneously without adding specialized engine weight:
 
-- **User-Land Joins:** Relational lookups are mapped entirely within user space via highly optimized synchronous `.get()`,`.find()` paths or stream operators. This delivers bare-metal relational lookups with zero parse-time penalties.
+- **Key/Value Store:** Native, direct embedded performance with zero abstraction lookup penalties.
+- **Document Store:** Polymorphic "MongoDB-like" row flexibility allowing varied shapes across rows in the same table.
+- **Relational Database:** Fast, user-land joins executed on-demand via synchronous lookups or stream operators.
 
 ### 3. Schema Polymorphism
 
@@ -36,6 +38,10 @@ WatchmanDB operations are wired directly into a pull-on-push synchronous streami
 - **`$before*` Streams (Shallow Scratchpad):** Fully synchronous, lazy, and transient streams that trigger _before_ mutations are written to disk. Any validation rejection or exception thrown downstream will immediately bubble up and trigger a full, clean LMDB transaction abort and rollback.
 - **`$after*` Streams (Durable Confirmation):** Microtask confirmation channels that fire exclusively after a transaction has successfully committed and synchronized data safely to the physical disk platter.
 - The `Source` stream returned by `Table.find()` is **strictly lazy and demand-driven**. Calling `find()` allocates no cursors, schedules no microtasks, and performs **zero database or memory lookups** up front. The query path remains entirely dormant until a consumer explicitly consume the source. If a query stream is never consumed, its operational footprint on your CPU and memory cache is absolute zero.
+
+- **`live queries`:** Because everything is natively composed around reactive streaming primitives, real-time live queries require no dedicated server-side engines or custom tracking layers. Users can create long-lived, real-time streaming queries entirely in user land by blending/merging initial history lookups with the `$afterInsert` / `$afterUpdate` channels.
+
+- **Zero-Buffer Network Streaming:** Because even the synchronous pull mechanism is fully lazy on a per-value basis, database queries can be streamed directly into a web-standard `ReadableStream` for HTTP responses. Data flows seamlessly from LMDB's memory-mapped files (`mmap`) straight to the client application's network socket without allocating massive intermediate arrays or creating extra memory locations in the V8 heap.
 
 ---
 
@@ -131,7 +137,7 @@ await db.transaction((tx) => {
 
 ```typescript
 import { map, toConsole, listen } from "@watchmanlab/stream";
-// Lookups are lazy: find() executes NO database memory reads until source is consumed is triggered
+// Lookups are lazy: find() executes NO database memory reads until source is consumed
 const queryStream = db.tables.user.find({ name: "Sofiane" }).pipe(
   map((user) => ({
     ...user,
@@ -143,9 +149,30 @@ const queryStream = db.tables.user.find({ name: "Sofiane" }).pipe(
 queryStream.pipe(toConsole());
 ```
 
----
+### 4. Composing User-Land Live Real-time Queries
 
-## 📄 LICENSE
+```typescript
+import { merge, filter } from "@watchmanlab/stream";
+
+const targetUserId = "usr_sofiane";
+
+// 1. Fetch historical data on demand (zero lookup cost until execution)
+const history = db.tables.request.find({ userId: targetUserId });
+
+// 2. Listen to the verified disk-commit stream for future updates
+const updates = db.tables.request.afterInsert.pipe(
+  filter((row) => row.userId === targetUserId),
+);
+
+// 3. Combine both tracks natively into a seamless, long-lived live stream
+const liveRequestQuery = history.pipe(merge(updates));
+
+for await (const request of liveRequestQuery) {
+  console.log(request);
+}
+```
+
+---
 
 MIT License
 
