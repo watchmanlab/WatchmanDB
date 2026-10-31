@@ -82,7 +82,7 @@ const db = create({
       id: z.string(),
       name: z.string(),
       age: z.number(),
-    }),
+    }).looseObject(),
     apply: new ZodSchema({
       id: z.number(),
       userId: z.string(),
