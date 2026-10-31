@@ -49,22 +49,26 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   find(query: Partial<Omit<ROW, "id">>): Source<ROW> {
     const queryKeys = Object.keys(query) as string[];
 
-    if (queryKeys.length === 0 || !this._indexes)
+    if (queryKeys.length === 0)
       return fromIterable(this._lmdb.getRange({})).pipe(map((e) => e.value));
 
-    for (const index of this._indexes) {
-      const source = index.find(query);
-      if (!source) continue;
+    // console.log("ddd");
 
-      return source
-        .pipe(map((id) => this.get(id)))
-        .pipe(
-          filter((row) =>
-            queryKeys.every(
-              (k) => String((row as any)[k]) === String((query as any)[k]),
+    if (this._indexes) {
+      for (const index of this._indexes) {
+        const source = index.find(query);
+        if (!source) continue;
+
+        return source
+          .pipe(map((id) => this.get(id)))
+          .pipe(
+            filter((row) =>
+              queryKeys.every(
+                (k) => String((row as any)[k]) === String((query as any)[k]),
+              ),
             ),
-          ),
-        );
+          );
+      }
     }
 
     return fromIterable(this._lmdb.getRange({}))
@@ -122,6 +126,10 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
     this._$beforeInsert?.push(parsed);
 
+    for (let i = 0; i < (this._indexes?.length ?? 0); i++) {
+      this._indexes?.[i]?.insert(parsed);
+    }
+
     this._lmdb.put(parsed.id, parsed).then((r) => {
       if (r) this._$afterInsert?.push(parsed);
     });
@@ -136,6 +144,10 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
     this._$beforeUpdate?.push({ New: parsed, Old });
 
+    for (let i = 0; i < (this._indexes?.length ?? 0); i++) {
+      this._indexes?.[i]?.update(parsed, Old);
+    }
+
     this._lmdb.put(parsed.id, parsed).then((r) => {
       if (r) this._$afterUpdate?.push({ New: parsed, Old });
     });
@@ -148,13 +160,21 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
     this._$beforeDelete?.push(old);
 
+    for (let i = 0; i < (this._indexes?.length ?? 0); i++) {
+      this._indexes?.[i]?.insert(old);
+    }
+
     this._lmdb.remove(old.id).then((r) => {
       if (r) this._$afterDelete?.push(old);
     });
     return true;
   }
-  drop(): Promise<void> {
-    return this._lmdb.clearAsync();
+  async drop(): Promise<void> {
+    await Promise.all([
+      this._lmdb.clearAsync(),
+      this._indexes?.map((idx) => idx.drop()),
+    ]);
+    return;
   }
 }
 

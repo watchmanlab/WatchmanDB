@@ -57,6 +57,9 @@ export class Index<
     const indexKey = this._makeIndexKey(row);
     this._lmdb.remove(indexKey);
   }
+  drop(): Promise<void> {
+    return this._lmdb.clearAsync();
+  }
 }
 
 export namespace Index {
