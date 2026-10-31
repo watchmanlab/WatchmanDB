@@ -4,6 +4,7 @@ import type { SchemaProvider } from "./schema-provider";
 import type { Index } from "./index";
 
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
+  private _name: string;
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
   private _indexes?: Index<ROW>[];
@@ -15,10 +16,12 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _$afterDelete?: Stream<Readonly<ROW>>;
 
   constructor(
+    name: string,
     lmdb: Database,
     schemaProvider: SchemaProvider<SCHEMA, ROW>,
     indexes?: Index<ROW>[],
   ) {
+    this._name = name;
     this._lmdb = lmdb;
     this._schemaProvider = schemaProvider;
     this._indexes = indexes;

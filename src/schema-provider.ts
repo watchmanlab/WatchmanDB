@@ -1,6 +1,6 @@
-export abstract class SchemaProvider<SCHEMA, OUT extends Record<string, any>> {
-  constructor(public schema: SCHEMA) {}
-  abstract parse(data: unknown): Readonly<OUT>;
+export interface SchemaProvider<SCHEMA, OUT extends Record<string, any>> {
+  schema: SCHEMA;
+  parse(data: unknown): Readonly<OUT>;
 }
 
 export namespace SchemaProvider {
