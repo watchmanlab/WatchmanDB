@@ -13,4 +13,8 @@ export class ZodSchema<
   override parse(data: unknown): Readonly<z.output<z.ZodObject<SHAPE>>> {
     return Object.freeze(this.schema.parse(data));
   }
+  looseObject() {
+    this.schema = z.looseObject(this.schema.shape);
+    return this;
+  }
 }
