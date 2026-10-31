@@ -1,6 +1,6 @@
 import type { Database } from "lmdb";
 import type { Table } from "./table";
-import { fromIterable, map, Source, Stream } from "@watchmanlab/stream";
+import { fromIterable, map, Source } from "@watchmanlab/stream";
 
 export class Index<
   ROW extends Table.Row,
@@ -25,20 +25,19 @@ export class Index<
     const matchesAll = this._columns.every((col) =>
       queryKeys.includes(col as string),
     );
+    if (!matchesAll) return;
 
-    if (matchesAll) {
-      // Construct composite search key up to the index boundary
-      const searchValues = this._columns
-        .map((col) => String(query[col]))
-        .join("\x00");
+    // Construct composite search key up to the index boundary
+    const searchValues = this._columns
+      .map((col) => String(query[col]))
+      .join("\x00");
 
-      return fromIterable(
-        this._lmdb.getRange({
-          start: searchValues,
-          end: searchValues + "\xff",
-        }),
-      ).pipe(map((e) => e.value));
-    }
+    return fromIterable(
+      this._lmdb.getRange({
+        start: searchValues,
+        end: searchValues + "\xff",
+      }),
+    ).pipe(map((e) => e.value));
   }
   insert(row: ROW) {
     const indexKey = this._makeIndexKey(row);

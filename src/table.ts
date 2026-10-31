@@ -6,7 +6,7 @@ import type { Index } from "./index";
 export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
-  private _indexes: Index<ROW>[] = [];
+  private _indexes?: Index<ROW>[];
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
   private _$beforeUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
@@ -14,9 +14,14 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _$beforeDelete?: Stream<Readonly<ROW>>;
   private _$afterDelete?: Stream<Readonly<ROW>>;
 
-  constructor(lmdb: Database, schemaProvider: SchemaProvider<SCHEMA, ROW>) {
+  constructor(
+    lmdb: Database,
+    schemaProvider: SchemaProvider<SCHEMA, ROW>,
+    indexes?: Index<ROW>[],
+  ) {
     this._lmdb = lmdb;
     this._schemaProvider = schemaProvider;
+    this._indexes = indexes;
   }
   get $afterInsert(): Source<Readonly<ROW>> {
     return Source.from((this._$afterInsert ??= new Stream()));
@@ -44,11 +49,9 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   find(query: Partial<Omit<ROW, "id">>): Source<ROW> {
     const queryKeys = Object.keys(query) as string[];
 
-    // If no query parameters, fallback to full scan stream
-    if (queryKeys.length === 0)
+    if (queryKeys.length === 0 || !this._indexes)
       return fromIterable(this._lmdb.getRange({})).pipe(map((e) => e.value));
 
-    // 🔎 1. Attempt to match an index
     for (const index of this._indexes) {
       const source = index.find(query);
       if (!source) continue;
@@ -64,7 +67,6 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
         );
     }
 
-    // ⚠️ 2. Fallback: Full Table Scan (No matching index found)
     return fromIterable(this._lmdb.getRange({}))
       .pipe(map((e) => e.value))
       .pipe(
