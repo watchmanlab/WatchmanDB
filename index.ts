@@ -7,7 +7,7 @@ try {
   await Bun.file("test.mdb").unlink();
   await Bun.file("test.mdb-lock").unlink();
 } catch (error) {}
-
+//
 const db = Db.create({
   path: "test.mdb",
   dbSchema: {
