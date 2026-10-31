@@ -7,7 +7,7 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
   private _name: string;
   private _lmdb: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
-  private _indexes?: Index<ROW>[];
+  private _indexes?: Index[];
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
   private _$beforeUpdate?: Stream<{ New: Readonly<ROW>; Old: Readonly<ROW> }>;
@@ -19,7 +19,7 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     name: string,
     lmdb: Database,
     schemaProvider: SchemaProvider<SCHEMA, ROW>,
-    indexes?: Index<ROW>[],
+    indexes?: Index[],
   ) {
     this._name = name;
     this._lmdb = lmdb;
@@ -49,13 +49,11 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     return this._lmdb.get(id);
   }
 
-  find(query: Partial<Omit<ROW, "id">>): Source<ROW> {
+  find(query: Partial<Omit<ROW, "id">> = {}): Source<ROW> {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
       return fromIterable(this._lmdb.getRange({})).pipe(map((e) => e.value));
-
-    // console.log("ddd");
 
     if (this._indexes) {
       for (const index of this._indexes) {
