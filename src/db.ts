@@ -101,4 +101,4 @@ await db.transaction((db) => {
   // db.tables.apply.insert({ id: 123, userId: "a", price: 200 });
 });
 
-db.tables.user.find({ name: "sof" }).pipe(toConsole());
+db.tables.user.find({ name: "dahmounth" }).pipe(toConsole());
