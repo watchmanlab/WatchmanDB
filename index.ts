@@ -12,7 +12,7 @@ try {
 //
 const db = create({
   path: "test.mdb",
-  dbSchema: {
+  tables: {
     user: new TypBoxSchema({
       id: Type.Number(),
       name: Type.String(),
@@ -28,9 +28,6 @@ const db = create({
   indexes: {
     user: [["name", "age"], ["age"]],
     // apply: [["price"], ["userId", "price"]],
-  },
-  options: {
-    compression: true,
   },
 });
 

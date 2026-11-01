@@ -213,6 +213,7 @@ export class Table<
 
 export namespace Table {
   export type Row = Record<string, any> & { id: Key };
+
   export type InferRow<TABLE extends Table<any, any, any>> =
     TABLE extends Table<any, infer R, any> ? R : never;
 

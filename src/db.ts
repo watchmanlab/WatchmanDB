@@ -46,7 +46,7 @@ export type Config<
   INDEXES extends Indexes<TABLES_SCHEMA>,
 > = {
   path: `${string}.mdb`;
-  dbSchema: TABLES_SCHEMA;
+  tables: TABLES_SCHEMA;
   indexes?: INDEXES;
   options?: Omit<RootDatabaseOptions, "maxDbs" | "dupSort" | "useVersions">;
 };
@@ -55,9 +55,12 @@ export function create<
   const INDEXES extends Indexes<TABLES_SCHEMA>,
 >(config: Config<TABLES_SCHEMA, INDEXES>): Db<TABLES_SCHEMA, INDEXES> {
   const env = open(config.path, {
-    ...config.options,
+    compression: true,
+    ...Object.fromEntries(
+      Object.entries(config.options ?? {}).filter(([_, v]) => v != null),
+    ),
     maxDbs:
-      Object.keys(config.dbSchema).length +
+      Object.keys(config.tables).length +
       Object.values(config.indexes ?? {}).flat().length,
   });
   env.readerCheck();
@@ -65,7 +68,7 @@ export function create<
   const db: Db<TABLES_SCHEMA, INDEXES> = {
     env,
     tables: Object.fromEntries(
-      Object.entries(config.dbSchema).map(([tableName, tableSchema]) => {
+      Object.entries(config.tables).map(([tableName, tableSchema]) => {
         return [
           tableName,
           new Table(
