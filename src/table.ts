@@ -7,14 +7,20 @@ import {
   Stream,
   terminate,
 } from "@watchmanlab/stream";
-import type { Database, Key } from "lmdb";
+import type { Database, GetOptions, Key, RootDatabase } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
-import type { Index } from "./table-index";
+import { Index } from "./table-index";
 
-export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
+export class Table<
+  SCHEMA,
+  ROW extends Table.Row,
+  IDX_COLS extends any[][],
+  TX extends boolean = false,
+> {
   private _name: string;
-  private _lmdb: Database<Readonly<ROW>>;
+  private _db: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
+  private _indexes_cols: IDX_COLS;
   private _indexes?: Index[];
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
@@ -25,14 +31,20 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
   constructor(
     name: string,
-    lmdb: Database,
+    env: RootDatabase,
     schemaProvider: SchemaProvider<SCHEMA, ROW>,
-    indexes?: Index[],
+    indexesCols: IDX_COLS,
   ) {
     this._name = name;
-    this._lmdb = lmdb;
+    this._db = env.openDB({ name, sharedStructuresKey: Symbol.for(name) });
     this._schemaProvider = schemaProvider;
-    this._indexes = indexes;
+    this._indexes_cols = indexesCols;
+    this._indexes = indexesCols
+      .sort((a, b) => b.length - a.length)
+      .map((cols) => new Index(env, this, cols));
+  }
+  get name() {
+    return this._name;
   }
   get $afterInsert(): Source<Readonly<ROW>> {
     return Source.from((this._$afterInsert ??= new Stream()));
@@ -53,44 +65,43 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     return Source.from((this._$afterDelete ??= new Stream()));
   }
 
-  get(id: ROW["id"]): ROW | undefined {
-    return this._lmdb.get(id);
+  get(id: ROW["id"], options?: GetOptions): ROW | undefined {
+    return this._db.get(id, options);
   }
 
-  find(query: Partial<Omit<ROW, "id">> = {}): Source<ROW> {
+  find<Q extends Partial<Omit<ROW, "id">>>(
+    query = {} as Q,
+  ): Table.TrackedSource<
+    ROW,
+    Table.DeduceIndexSelection<IDX_COLS, Q>["index"],
+    Table.DeduceIndexSelection<IDX_COLS, Q>["strategy"]
+  > {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
-      return fromIterable(this._lmdb.getRange()).pipe(map((e) => e.value));
+      return fromIterable(this._db.getRange()).pipe(
+        map((e) => e.value),
+      ) as never;
 
     if (this._indexes) {
       for (const index of this._indexes) {
-        const source = index.find(query);
+        const source = index.find(query, queryKeys.length);
         if (!source) continue;
 
-        return source.pipe(map((id) => this.get(id))).pipe(
-          filter((row) => {
-            if (!row) return false;
-            return queryKeys.every((k) => row[k] === query[k]);
-          }),
-        );
+        return source as never;
       }
     }
 
-    return fromIterable(this._lmdb.getRange({}))
+    return fromIterable(this._db.getRange({}))
       .pipe(map((e) => e.value))
       .pipe(
-        filter((row) =>
-          queryKeys.every(
-            (k) => String((row as any)[k]) === String((query as any)[k]),
-          ),
-        ),
-      );
+        filter((row) => queryKeys.every((k) => query[k] === row[k])),
+      ) as never;
   }
 
   private _isInsideTransaction(): boolean {
     try {
-      return this._lmdb.getWriteTxnId() > 0;
+      return this._db.getWriteTxnId() > 0;
     } catch (error) {
       return false;
     }
@@ -99,7 +110,7 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     if (this._isInsideTransaction()) {
       return this._insert(row) as never;
     } else {
-      return this._lmdb.transaction(() => this._insert(row)) as never;
+      return this._db.transaction(() => this._insert(row)) as never;
     }
   }
   update(
@@ -108,11 +119,11 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     if (this._isInsideTransaction()) {
       return this._update(row) as never;
     } else {
-      return this._lmdb.transaction(() => this._update(row)) as never;
+      return this._db.transaction(() => this._update(row)) as never;
     }
   }
   upsert(row: ROW): TX extends true ? boolean : Promise<boolean> {
-    if (this._lmdb.doesExist(row.id)) {
+    if (this._db.doesExist(row.id)) {
       return this.update(row) as never;
     } else {
       return this.insert(row) as never;
@@ -122,11 +133,11 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
     if (this._isInsideTransaction()) {
       return this._delete(id) as never;
     } else {
-      return this._lmdb.transaction(() => this._delete(id)) as never;
+      return this._db.transaction(() => this._delete(id)) as never;
     }
   }
   private _insert(row: ROW) {
-    if (this._lmdb.doesExist(row.id)) return false;
+    if (this._db.doesExist(row.id)) return false;
 
     const parsed = this._schemaProvider.parse(row);
 
@@ -136,14 +147,14 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
       this._indexes?.[i]?.insert(parsed);
     }
 
-    this._lmdb.put(parsed.id, parsed).then((r) => {
+    this._db.put(parsed.id, parsed).then((r) => {
       if (r) this._$afterInsert?.push(parsed);
     });
 
     return true;
   }
   private _update(row: Partial<Omit<ROW, "id">> & Pick<ROW, "id">) {
-    const Old = this._lmdb.get(row.id);
+    const Old = this._db.get(row.id);
     if (!Old) return false;
 
     const parsed = this._schemaProvider.parse({ ...Old, ...row });
@@ -154,14 +165,14 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
       this._indexes?.[i]?.update(parsed, Old);
     }
 
-    this._lmdb.put(parsed.id, parsed).then((r) => {
+    this._db.put(parsed.id, parsed).then((r) => {
       if (r) this._$afterUpdate?.push({ New: parsed, Old });
     });
 
     return true;
   }
   private _delete(id: ROW["id"]) {
-    const old = this._lmdb.get(id);
+    const old = this._db.get(id);
     if (!old) return false;
 
     this._$beforeDelete?.push(old);
@@ -170,14 +181,14 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
       this._indexes?.[i]?.insert(old);
     }
 
-    this._lmdb.remove(old.id).then((r) => {
+    this._db.remove(old.id).then((r) => {
       if (r) this._$afterDelete?.push(old);
     });
     return true;
   }
   async drop(): Promise<void> {
     await Promise.all([
-      this._lmdb.clearAsync(),
+      this._db.clearAsync(),
       this._indexes?.map((idx) => idx.drop()),
     ]);
     return;
@@ -188,4 +199,51 @@ export namespace Table {
   export type Row = Record<string, any> & { id: Key };
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
+
+  export interface QueryDiagnostics<Index, Strategy> {
+    __debug_index_hit: Index;
+    __debug_strategy: Strategy;
+  }
+
+  // We wrap your original Source stream with the diagnostics metadata
+  export type TrackedSource<T, Index, Strategy> = Source<T> &
+    QueryDiagnostics<Index, Strategy>;
+
+  // Helper type to check if a specific Index tuple covers a Query object type
+  export type EvaluateIndexMatch<
+    Index extends readonly string[],
+    Query,
+  > = Index extends readonly []
+    ? "NO_COVER"
+    : {
+          [K in Index[number]]: K extends keyof Query ? true : false;
+        }[Index[number]] extends true
+      ? EqualLen<Index, Query> extends true
+        ? "FULL_COVER"
+        : "RESIDUAL_FILTER"
+      : "NO_COVER";
+
+  // Helper to determine if the query key length matches the index tuple length exactly
+  export type EqualLen<
+    Index extends readonly string[],
+    Query,
+    Keys extends any[] = [],
+  > = Keys["length"] extends Index["length"]
+    ? keyof Query extends Index[number]
+      ? true
+      : false
+    : EqualLen<Index, Query, [...Keys, any]>;
+
+  // The recursive compiler loop that mimics your runtime loop matching order
+  export type DeduceIndexSelection<
+    Indexes extends readonly (readonly string[])[],
+    Query,
+  > = Indexes extends readonly [
+    infer First extends readonly string[],
+    ...infer Rest extends readonly (readonly string[])[],
+  ]
+    ? EvaluateIndexMatch<First, Query> extends "NO_COVER"
+      ? DeduceIndexSelection<Rest, Query> // Try next index in priority order
+      : { index: First; strategy: EvaluateIndexMatch<First, Query> } // Found it!
+    : { index: never; strategy: "FULL_SCAN" }; // No index matched
 }
