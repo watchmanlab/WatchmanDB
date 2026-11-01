@@ -1,29 +1,32 @@
 {
-  "name": "WatchmanDB",
+  "name": "watchmandb",
   "version": "0.1.0",
   "description": "Ultra-high-performance multi-paradigm embedded database engine over LMDB",
-  "main": "./dist/index.cjs",
+  "author": "Soffinal <smari.sofiane@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/watchmanlab/watchmandb.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "types": "./dist/index.d.ts"
     }
   },
-  "scripts": {
-    "build:js": "bun build ./src/index.ts --outdir ./dist --target node && bun build ./src/index.ts --outfile ./dist/index.cjs --target node",
-    "build:types": "tsc --emitDeclarationOnly --outDir dist",
-    "build": "rm -rf dist && bun run build:js && bun run build:types",
-    "prepublishOnly": "bun run build"
-  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "bunup": "^0.16.32"
   },
   "peerDependencies": {
     "typescript": "^7",
@@ -42,6 +45,5 @@
     "stream",
     "performance"
   ],
-  "author": "WatchmanLab",
   "license": "MIT"
 }

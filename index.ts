@@ -40,20 +40,15 @@ const db = Db.create({
 
 console.time("insert");
 await db.transaction((db) => {
-  for (let i = 1; i <= 250_000; i++) {
+  for (let i = 1; i <= 1_000_000; i++) {
     db.tables.user.insert({ id: i, name: `${i}-sof`, age: i });
   }
 });
-console.timeEnd("insert"); //[983.52ms] how long????
+console.timeEnd("insert"); // [1356.45ms] insert
 
 console.time("find");
 
 for (const user of db.tables.user.find()) {
-  //   await new Promise((r) => setTimeout(r, 10));
-  //   console.log(user.id);
+  if (user.name) continue;
 }
-console.timeEnd("find");
-
-// db.tables.user.find().pipe(toConsole());
-
-// console.log(db.env.getStats());
+console.timeEnd("find"); //[191.33ms] find
