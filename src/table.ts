@@ -65,15 +65,17 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
     if (this._indexes) {
       for (const index of this._indexes) {
-        const source = index.find(query);
+        const source = index.find(query, queryKeys.length);
         if (!source) continue;
 
-        return source.pipe(map((id) => this.get(id))).pipe(
-          filter((row) => {
-            if (!row) return false;
-            return queryKeys.every((k) => query[k] === row[k]);
-          }),
-        );
+        return source;
+        // .pipe(map((id) => this.get(id)!));
+        // .pipe(
+        //   filter((row) => {
+        //     if (!row) return false;
+        //     return queryKeys.every((k) => query[k] === row[k]);
+        //   }),
+        // );
       }
     }
 
