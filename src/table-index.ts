@@ -38,7 +38,9 @@ export class Index {
       );
     }
   }
-
+  get columns(): string[] {
+    return this._columns;
+  }
   private _makeIndexKey(row: Table.Row): string {
     const values = this._columns.map((col) => row[col] + "\x00");
     return [...values, row.id].join("\x00");

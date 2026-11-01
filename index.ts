@@ -25,7 +25,7 @@ const db = create({
     }),
   },
   indexes: {
-    user: [["age", "name"]],
+    user: [["name", "age"]],
     // apply: [["price"], ["userId", "price"]],
   },
   options: {
@@ -48,7 +48,7 @@ console.time("find");
 
 const source = db.tables.user.find(
   { name: "110-sof" },
-  { forceFullScan: true },
+  //   { forceFullScan: true },
 );
 try {
   source.__diagnostics.index;
