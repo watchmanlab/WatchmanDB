@@ -41,6 +41,9 @@ await db.transaction((db) => {
 });
 console.timeEnd("insert");
 
+for (const _ of db.tables.user.find({ age: 100, name: "110-sof" })) {
+}
+
 console.time("find");
 
 for (const user of db.tables.user.find({ age: 100, name: "110-sof" })) {

@@ -30,7 +30,7 @@ export class Index {
   }
 
   private _makeIndexKey(row: Table.Row): string {
-    const values = this._columns.map((col) => [row[col], col]).flat();
+    const values = this._columns.map((col) => row[col] + "\x00");
     return [...values, row.id].join("\x00");
   }
   private _matchQuery(query: Record<string, any>): boolean {
@@ -57,8 +57,7 @@ export class Index {
     if (!this._matchQuery(query)) return;
 
     const searchValues = this._columns
-      .map((col) => [query[col], col])
-      .flat()
+      .map((col) => query[col] + "\x00")
       .join("\x00");
 
     console.log("query", Object.keys(query));
