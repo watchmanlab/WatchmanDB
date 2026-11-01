@@ -71,7 +71,7 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
         return source.pipe(map((id) => this.get(id))).pipe(
           filter((row) => {
             if (!row) return false;
-            return queryKeys.every((k) => row[k] === query[k]);
+            return queryKeys.every((k) => query[k] === row[k]);
           }),
         );
       }
@@ -79,13 +79,7 @@ export class Table<SCHEMA, ROW extends Table.Row, TX extends boolean = false> {
 
     return fromIterable(this._lmdb.getRange({}))
       .pipe(map((e) => e.value))
-      .pipe(
-        filter((row) =>
-          queryKeys.every(
-            (k) => String((row as any)[k]) === String((query as any)[k]),
-          ),
-        ),
-      );
+      .pipe(filter((row) => queryKeys.every((k) => query[k] === row[k])));
   }
 
   private _isInsideTransaction(): boolean {

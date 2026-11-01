@@ -1,11 +1,12 @@
 import type { Database } from "lmdb";
 import type { Table } from "./table";
-import { fromIterable, map, Source } from "@watchmanlab/stream";
+import { fromIterable, map, Source, tap } from "@watchmanlab/stream";
 
 export class Index {
   private _name: string;
   private _lmdb: Database;
   private _columns: string[];
+  private _keysSet: Set<string>;
   constructor(
     name: string,
     tableLmdb: Database,
@@ -15,6 +16,7 @@ export class Index {
     this._name = name;
     this._lmdb = lmdb;
     this._columns = columns;
+    this._keysSet = new Set<string>();
 
     // build the index if new and its table has rows
     if (
@@ -28,21 +30,40 @@ export class Index {
   }
 
   private _makeIndexKey(row: Table.Row): string {
-    const values = this._columns.map((col) => String(row[col]));
-    return [...values, String(row.id)].join("\x00");
+    const values = this._columns.map((col) => [row[col], col]).flat();
+    return [...values, row.id].join("\x00");
   }
+  private _matchQuery(query: Record<string, any>): boolean {
+    const queryKeys = Object.keys(query);
+    const queryLen = queryKeys.length;
 
+    if (this._columns.length < queryLen) return false;
+
+    let matchCount = 0;
+
+    for (let i = 0; i < queryLen; i++) {
+      const index = this._columns[i]!;
+
+      if (index in query) {
+        matchCount++;
+      } else {
+        break;
+      }
+    }
+
+    return matchCount === queryLen;
+  }
   find(query: Record<string, any>): Source<any> | undefined {
-    const queryKeys = Object.keys(query) as string[];
-
-    const matchesAll = this._columns.every((col) =>
-      queryKeys.includes(col as string),
-    );
-    if (!matchesAll) return;
+    if (!this._matchQuery(query)) return;
 
     const searchValues = this._columns
-      .map((col) => String(query[col]))
+      .map((col) => [query[col], col])
+      .flat()
       .join("\x00");
+
+    console.log("query", Object.keys(query));
+    console.log("index hit:", this._columns);
+    console.log("---------------------");
 
     return fromIterable(
       this._lmdb.getRange({
@@ -50,7 +71,9 @@ export class Index {
         end: searchValues + "\xff",
         inclusiveEnd: true,
       }),
-    ).pipe(map((e) => e.value));
+    )
+      .pipe(tap((v) => console.log("key found:", v.key)))
+      .pipe(map((e) => e.value));
   }
   insert(row: Table.Row) {
     const indexKey = this._makeIndexKey(row);
