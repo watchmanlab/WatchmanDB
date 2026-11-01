@@ -25,7 +25,7 @@ const db = create({
     }),
   },
   indexes: {
-    user: [["age"]],
+    user: [["age", "name"]],
     // apply: [["price"], ["userId", "price"]],
   },
   options: {

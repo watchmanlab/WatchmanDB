@@ -31,7 +31,7 @@ export class Index {
     // build the index if new and its table has rows
     if (
       this._db.getKeys()[Symbol.iterator]().next().done &&
-      !this._table.find({})[Symbol.iterator]().next().done
+      !this._table.find()[Symbol.iterator]().next().done
     ) {
       this._db.transaction(() =>
         this._table.find().pipe(listen((row) => this.insert(row))),

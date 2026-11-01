@@ -1,12 +1,4 @@
-import {
-  delay,
-  filter,
-  fromIterable,
-  map,
-  Source,
-  Stream,
-  terminate,
-} from "@watchmanlab/stream";
+import { filter, fromIterable, map, Source, Stream } from "@watchmanlab/stream";
 import type { Database, GetOptions, Key, RootDatabase } from "lmdb";
 import type { SchemaProvider } from "./schema-provider";
 import { Index } from "./table-index";
@@ -70,8 +62,8 @@ export class Table<
   }
 
   find<Q extends Partial<Omit<ROW, "id">>>(
-    query = {} as Q,
-  ): Source<ROW> & { indexUsed: Table.IndexMatch<IDX_COLS, Q> } {
+    query = {} as Q, //& Table.ValidateQuery<IDX_COLS, Q>,
+  ): Table.WatchmanSource<ROW, Table.DeduceStrategy<IDX_COLS, Q>> {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
@@ -195,33 +187,18 @@ export namespace Table {
   export type Row = Record<string, any> & { id: Key };
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
-  export type IndexPermutations<IDX extends string, U extends string = IDX> = [
-    IDX,
-  ] extends [never]
-    ? ""
-    : IDX extends any
-      ?
-          | IDX
-          | (IndexPermutations<Exclude<U, IDX>> extends ""
-              ? never
-              : `${IDX},${IndexPermutations<Exclude<U, IDX>>}`)
-      : never;
-  let p: IndexPermutations<"name" | "age">;
-  //. ^?
-  export type IndexString<IDX extends string[]> = IDX["length"] extends 0
-    ? ""
-    : IDX extends [infer FIRST, ...infer REST]
-      ? FIRST extends string
-        ? REST extends string[]
-          ? REST["length"] extends 0
-            ? FIRST
-            : `${FIRST},${IndexString<REST>}`
-          : never
-        : never
-      : never;
 
-  let i: IndexString<["name", "age"]>;
-  //. ^?
+  export type InferIndex<T extends string, U extends string = T> = [T] extends [
+    never,
+  ]
+    ? ""
+    : T extends any
+      ?
+          | T
+          | (InferIndex<Exclude<U, T>> extends ""
+              ? never
+              : `${T}:${InferIndex<Exclude<U, T>>}`)
+      : never;
 
   export type IndexMatch<
     I extends string[],
@@ -238,12 +215,31 @@ export namespace Table {
   type R = IndexMatch<["name", "age"], { name: string; age: string }>;
   //.  ^?
 
-  export interface QueryDiagnostics<Index, Strategy> {
-    __debug_index_hit: Index;
-    __debug_strategy: Strategy;
-  }
+  export type DeduceStrategy<
+    Indexes extends string[][],
+    Query extends Record<any, any>,
+  > = Indexes extends [
+    infer First extends string[],
+    ...infer Rest extends string[][],
+  ]
+    ? IndexMatch<First, Query> extends "NO_COVER"
+      ? DeduceStrategy<Rest, Query> // Leftmost rule broken, evaluate next prioritized layout
+      : { index: First; strategy: IndexMatch<First, Query> }
+    : { index: never; strategy: "FULL_SCAN" };
 
-  // We wrap your original Source stream with the diagnostics metadata
-  export type TrackedSource<T, Index, Strategy> = Source<T> &
-    QueryDiagnostics<Index, Strategy>;
+  let d: DeduceStrategy<[["name", "age"], ["age"]], { age: string }>;
+  //. ^?
+  export type WatchmanSource<T, Diagnostic> = Source<T> & {
+    __diagnostics: Diagnostic;
+  };
+  export type ValidateQuery<
+    Indexes extends string[][],
+    Query extends Record<string, any>,
+  > = DeduceStrategy<Indexes, Query>["strategy"] extends "FULL_SCAN"
+    ? {
+        [K in keyof Query]: Query[K];
+      } & {
+        readonly __unindexed_query_error: "❌ WatchmanDB Error: This query results in a FULL_SCAN! Please add an appropriate index definition.";
+      }
+    : Query;
 }
