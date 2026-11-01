@@ -71,11 +71,7 @@ export class Table<
 
   find<Q extends Partial<Omit<ROW, "id">>>(
     query = {} as Q,
-  ): Table.TrackedSource<
-    ROW,
-    Table.DeduceIndexSelection<IDX_COLS, Q>["index"],
-    Table.DeduceIndexSelection<IDX_COLS, Q>["strategy"]
-  > {
+  ): Source<ROW> & { indexUsed: Table.IndexMatch<IDX_COLS, Q> } {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
@@ -199,6 +195,48 @@ export namespace Table {
   export type Row = Record<string, any> & { id: Key };
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
+  export type IndexPermutations<IDX extends string, U extends string = IDX> = [
+    IDX,
+  ] extends [never]
+    ? ""
+    : IDX extends any
+      ?
+          | IDX
+          | (IndexPermutations<Exclude<U, IDX>> extends ""
+              ? never
+              : `${IDX},${IndexPermutations<Exclude<U, IDX>>}`)
+      : never;
+  let p: IndexPermutations<"name" | "age">;
+  //. ^?
+  export type IndexString<IDX extends string[]> = IDX["length"] extends 0
+    ? ""
+    : IDX extends [infer FIRST, ...infer REST]
+      ? FIRST extends string
+        ? REST extends string[]
+          ? REST["length"] extends 0
+            ? FIRST
+            : `${FIRST},${IndexString<REST>}`
+          : never
+        : never
+      : never;
+
+  let i: IndexString<["name", "age"]>;
+  //. ^?
+
+  export type IndexMatch<
+    I extends string[],
+    Q extends Record<any, any>,
+  > = keyof Q extends I[number]
+    ? I[0] extends keyof Q
+      ? "FULL_COVER"
+      : "NO_COVER"
+    : I[number] extends keyof Q
+      ? "RESIDUAL_FILTER"
+      : I[0] extends keyof Q
+        ? "RESIDUAL_FILTER"
+        : "NO_COVER";
+  type R = IndexMatch<["name", "age"], { name: string; age: string }>;
+  //.  ^?
 
   export interface QueryDiagnostics<Index, Strategy> {
     __debug_index_hit: Index;
@@ -208,42 +246,4 @@ export namespace Table {
   // We wrap your original Source stream with the diagnostics metadata
   export type TrackedSource<T, Index, Strategy> = Source<T> &
     QueryDiagnostics<Index, Strategy>;
-
-  // Helper type to check if a specific Index tuple covers a Query object type
-  export type EvaluateIndexMatch<
-    Index extends readonly string[],
-    Query,
-  > = Index extends readonly []
-    ? "NO_COVER"
-    : {
-          [K in Index[number]]: K extends keyof Query ? true : false;
-        }[Index[number]] extends true
-      ? EqualLen<Index, Query> extends true
-        ? "FULL_COVER"
-        : "RESIDUAL_FILTER"
-      : "NO_COVER";
-
-  // Helper to determine if the query key length matches the index tuple length exactly
-  export type EqualLen<
-    Index extends readonly string[],
-    Query,
-    Keys extends any[] = [],
-  > = Keys["length"] extends Index["length"]
-    ? keyof Query extends Index[number]
-      ? true
-      : false
-    : EqualLen<Index, Query, [...Keys, any]>;
-
-  // The recursive compiler loop that mimics your runtime loop matching order
-  export type DeduceIndexSelection<
-    Indexes extends readonly (readonly string[])[],
-    Query,
-  > = Indexes extends readonly [
-    infer First extends readonly string[],
-    ...infer Rest extends readonly (readonly string[])[],
-  ]
-    ? EvaluateIndexMatch<First, Query> extends "NO_COVER"
-      ? DeduceIndexSelection<Rest, Query> // Try next index in priority order
-      : { index: First; strategy: EvaluateIndexMatch<First, Query> } // Found it!
-    : { index: never; strategy: "FULL_SCAN" }; // No index matched
 }
