@@ -12,7 +12,7 @@ export class Table<
   private _name: string;
   private _db: Database<Readonly<ROW>>;
   private _schemaProvider: SchemaProvider<SCHEMA, ROW>;
-  private _indexes_cols: IDX_COLS;
+  _indexes_cols: IDX_COLS;
   private _indexes?: Index[];
   private _$beforeInsert?: Stream<Readonly<ROW>>;
   private _$afterInsert?: Stream<Readonly<ROW>>;
@@ -188,17 +188,17 @@ export namespace Table {
   export type InferRow<T extends Table<any, any, any>> =
     T extends Table<any, infer R, any> ? R : never;
 
-  export type InferIndex<T extends string, U extends string = T> = [T] extends [
-    never,
-  ]
-    ? ""
-    : T extends any
-      ?
-          | T
-          | (InferIndex<Exclude<U, T>> extends ""
-              ? never
-              : `${T}:${InferIndex<Exclude<U, T>>}`)
-      : never;
+  // export type InferIndex<T extends string, U extends string = T> = [T] extends [
+  //   never,
+  // ]
+  //   ? ""
+  //   : T extends any
+  //     ?
+  //         | T
+  //         | (InferIndex<Exclude<U, T>> extends ""
+  //             ? never
+  //             : `${T}:${InferIndex<Exclude<U, T>>}`)
+  //     : never;
 
   export type IndexMatch<
     I extends string[],
@@ -227,7 +227,10 @@ export namespace Table {
       : { index: First; strategy: IndexMatch<First, Query> }
     : { index: never; strategy: "FULL_SCAN" };
 
-  let d: DeduceStrategy<[["name", "age"], ["age"]], { age: string }>;
+  let d: DeduceStrategy<
+    [["name", "age"], ["age"]],
+    { age: string; name: string }
+  >;
   //. ^?
   export type WatchmanSource<T, Diagnostic> = Source<T> & {
     __diagnostics: Diagnostic;

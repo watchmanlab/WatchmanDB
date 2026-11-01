@@ -47,7 +47,12 @@ console.timeEnd("insert");
 console.time("find");
 
 const source = db.tables.user.find({ age: 100, name: "110-sof" });
-
+try {
+  source.__diagnostics.index;
+  //                    ^?
+  source.__diagnostics.strategy;
+  //                    ^?
+} catch (error) {}
 for (const user of source) {
   console.log(user);
 }
