@@ -1,35 +1,40 @@
-import type { Database } from "lmdb";
+import type { Database, RootDatabase } from "lmdb";
 import type { Table } from "./table";
-import { filter, fromIterable, map, Source, tap } from "@watchmanlab/stream";
+import {
+  filter,
+  fromIterable,
+  listen,
+  map,
+  Source,
+  tap,
+} from "@watchmanlab/stream";
 export type IndexMatchResult =
   | { type: "FULL_COVER" } // 0% row validation needed
   | { type: "RESIDUAL_FILTER"; indexKeysCount: number } // Use index first, then filter rows
   | { type: "NO_COVER" }; // Cannot use this index
 export class Index {
   private _name: string;
-  private _lmdb: Database;
-  private _tableLmdb: Database;
+  private _db: Database;
+  private _table: Table<any, any, any, any>;
   private _columns: string[];
-  private _keysSet: Set<string>;
+
   constructor(
-    name: string,
-    tableLmdb: Database,
-    lmdb: Database,
+    env: RootDatabase,
+    table: Table<any, any, any, any>,
     columns: string[],
   ) {
-    this._name = name;
-    this._lmdb = lmdb;
-    this._tableLmdb = tableLmdb;
+    this._name = ["index", ...columns, table.name].join(":");
+    this._db = env.openDB({ name: this._name });
+    this._table = table;
     this._columns = columns;
-    this._keysSet = new Set<string>();
 
     // build the index if new and its table has rows
     if (
-      lmdb.getKeys()[Symbol.iterator]().next().done &&
-      !tableLmdb.getKeys()[Symbol.iterator]().next().done
+      this._db.getKeys()[Symbol.iterator]().next().done &&
+      !this._table.find({})[Symbol.iterator]().next().done
     ) {
-      tableLmdb.transaction(() =>
-        tableLmdb.getRange().forEach(({ value }) => this.insert(value)),
+      this._db.transaction(() =>
+        this._table.find().pipe(listen((row) => this.insert(row))),
       );
     }
   }
@@ -85,16 +90,15 @@ export class Index {
     console.log("index hit:", this._columns, `(${match.type})`);
     console.log("---------------------");
 
-    // Fetch from the index table range
     let source = fromIterable(
-      this._lmdb.getRange({
+      this._db.getRange({
         start: searchValues,
         end: searchValues + "\xff",
         inclusiveEnd: true,
       }),
     )
       .pipe(tap((v) => console.log("key found:", v.key)))
-      .pipe(map((e) => e.value)); // Yields the Row IDs/Values
+      .pipe(map((e) => this._table.get(e.value)!));
 
     // If the query is larger than the index, apply residual filtering to the stream
     if (match.type === "RESIDUAL_FILTER") {
@@ -106,20 +110,14 @@ export class Index {
       const residualLen = residualKeys.length;
 
       return source.pipe(
-        filter((id) => {
-          // 1. Fetch the raw row record from your primary storage table using the gathered ID
-          // (If your index value *is* already the full row document, omit the .get(idOrRow) lookup)
-          const row = this._tableLmdb.get(id);
-          if (!row) return false;
-
-          // 2. Performance-optimized, non-allocating filter loop
+        filter((row) => {
           for (let i = 0; i < residualLen; i++) {
             const key = residualKeys[i]!;
             if (row[key] !== query[key]) {
-              return false; // Mismatch found, drop this candidate
+              return false;
             }
           }
-          return true; // Valid record matches the extra fields!
+          return true;
         }),
       );
     }
@@ -129,23 +127,23 @@ export class Index {
 
   insert(row: Table.Row) {
     const indexKey = this._makeIndexKey(row);
-    this._lmdb.put(indexKey, row.id);
+    this._db.put(indexKey, row.id);
   }
   update(newRow: Table.Row, oldRow: Table.Row) {
     const oldIndexKey = this._makeIndexKey(oldRow);
     const newIndexKey = this._makeIndexKey(newRow);
 
     if (oldIndexKey !== newIndexKey) {
-      this._lmdb.remove(oldIndexKey);
-      this._lmdb.put(newIndexKey, newRow.id);
+      this._db.remove(oldIndexKey);
+      this._db.put(newIndexKey, newRow.id);
     }
   }
 
   delete(row: Table.Row) {
     const indexKey = this._makeIndexKey(row);
-    this._lmdb.remove(indexKey);
+    this._db.remove(indexKey);
   }
   drop(): Promise<void> {
-    return this._lmdb.clearAsync();
+    return this._db.clearAsync();
   }
 }

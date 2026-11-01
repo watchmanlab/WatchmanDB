@@ -25,7 +25,7 @@ const db = create({
     }),
   },
   indexes: {
-    user: [["age"], ["name", "age"]],
+    user: [["age"]],
     // apply: [["price"], ["userId", "price"]],
   },
   options: {
@@ -41,12 +41,14 @@ await db.transaction((db) => {
 });
 console.timeEnd("insert");
 
-for (const _ of db.tables.user.find({ age: 100, name: "110-sof" })) {
-}
+// for (const _ of db.tables.user.find({ age: 100, name: "110-sof" })) {
+// }
 
 console.time("find");
 
-for (const user of db.tables.user.find({ age: 100, name: "110-sof" })) {
+const source = db.tables.user.find({ age: 100, name: "110-sof" });
+
+for (const user of source) {
   console.log(user);
 }
 console.timeEnd("find");

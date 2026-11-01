@@ -17,6 +17,7 @@ export type Tables<DB_SCHEMA extends DbSchema, TX extends boolean = false> = {
   [K in keyof DB_SCHEMA]: Table<
     DB_SCHEMA[K],
     SchemaProvider.InferOutput<DB_SCHEMA[K]>,
+    Exclude<keyof SchemaProvider.InferOutput<DB_SCHEMA[K]>, "id">[][],
     TX
   >;
 };
@@ -49,22 +50,13 @@ export function create<DB_SCHEMA extends DbSchema>(
     env,
     tables: Object.fromEntries(
       Object.entries(config.dbSchema).map(([tableName, tableSchema]) => {
-        const tableDb = env.openDB({
-          name: tableName,
-          sharedStructuresKey: Symbol.for(tableName),
-        });
         return [
           tableName,
           new Table(
             tableName,
-            tableDb,
+            env,
             tableSchema,
-            config.indexes?.[tableName]?.map((cols) => {
-              const indexName = ["index", ...cols, tableName].join("\x00");
-              const db = env.openDB({ name: indexName });
-              const index = new Index(indexName, tableDb, db, cols as string[]);
-              return index;
-            }),
+            config.indexes?.[tableName] ?? [],
           ),
         ];
       }),
