@@ -76,21 +76,17 @@ export class Index {
     return { type: "NO_COVER" };
   }
 
-  find(query: Record<string, any>, queryLen: number): Source<any> | undefined {
+  find(
+    query: Record<string, any>,
+    queryLen: number,
+  ): { source: Source<any>; strategy: Table.IndexStrategy } | undefined {
     const match = this._matchQuery(query, queryLen);
 
-    // If the index doesn't align with the prefix at all, skip it immediately
     if (match.type === "NO_COVER") return;
 
-    // Build the compound key prefix using only the index columns.
-    // This works perfectly for both FULL_COVER and RESIDUAL_FILTER!
     const searchValues = this._columns
       .map((col) => query[col] + "\x00")
       .join("\x00");
-
-    console.log("query", Object.keys(query));
-    console.log("index hit:", this._columns, `(${match.type})`);
-    console.log("---------------------");
 
     let source = fromIterable(
       this._db.getRange({
@@ -98,33 +94,32 @@ export class Index {
         end: searchValues + "\xff",
         inclusiveEnd: true,
       }),
-    )
-      .pipe(tap((v) => console.log("key found:", v.key)))
-      .pipe(map((e) => this._table.get(e.value)!));
+    ).pipe(map((e) => this._table.get(e.value)!));
 
-    // If the query is larger than the index, apply residual filtering to the stream
     if (match.type === "RESIDUAL_FILTER") {
-      // Isolate the extra keys that aren't managed by this index
       const indexedColumns = this._columns;
       const residualKeys = Object.keys(query).filter(
         (k) => !indexedColumns.includes(k),
       );
       const residualLen = residualKeys.length;
 
-      return source.pipe(
-        filter((row) => {
-          for (let i = 0; i < residualLen; i++) {
-            const key = residualKeys[i]!;
-            if (row[key] !== query[key]) {
-              return false;
+      return {
+        source: source.pipe(
+          filter((row) => {
+            for (let i = 0; i < residualLen; i++) {
+              const key = residualKeys[i]!;
+              if (row[key] !== query[key]) {
+                return false;
+              }
             }
-          }
-          return true;
-        }),
-      );
+            return true;
+          }),
+        ),
+        strategy: "NRESIDUAL_FILTER",
+      };
     }
 
-    return source;
+    return { source, strategy: "FULL_COVER" };
   }
 
   insert(row: Table.Row) {
@@ -145,7 +140,7 @@ export class Index {
     const indexKey = this._makeIndexKey(row);
     this._db.remove(indexKey);
   }
-  drop(): Promise<void> {
+  clear(): Promise<void> {
     return this._db.clearAsync();
   }
 }

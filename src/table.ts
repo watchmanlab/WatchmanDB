@@ -84,10 +84,14 @@ export class Table<
 
     if (this._indexes && !options?.forceFullScan) {
       for (const index of this._indexes) {
-        const source = index.find(query, queryKeys.length);
-        if (!source) continue;
+        const result = index.find(query, queryKeys.length);
+        if (!result) continue;
 
-        return source as never;
+        return this._attachDiagnostics(
+          result.source,
+          index.columns,
+          result.strategy,
+        ) as never;
       }
     }
 
@@ -198,10 +202,10 @@ export class Table<
     });
     return true;
   }
-  async drop(): Promise<void> {
+  async clear(): Promise<void> {
     await Promise.all([
       this._db.clearAsync(),
-      this._indexes?.map((idx) => idx.drop()),
+      this._indexes?.map((idx) => idx.clear()),
     ]);
     return;
   }

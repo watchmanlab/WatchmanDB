@@ -26,7 +26,7 @@ const db = create({
     }),
   },
   indexes: {
-    user: [["name", "age"]],
+    user: [["name", "age"], ["age"]],
     // apply: [["price"], ["userId", "price"]],
   },
   options: {
@@ -42,23 +42,20 @@ await db.transaction((db) => {
 });
 console.timeEnd("insert");
 
-// for (const _ of db.tables.user.find({ age: 100, name: "110-sof" })) {
-// }
+for (const _ of db.tables.user.find({ age: 100, name: "110-sof" })) {
+}
 
 console.time("find");
 
-const source = db.tables.user.find(
-  { name: "110-sof", age: 100 },
-  //   { forceFullScan: true },
-);
-try {
-  console.log(source.__diagnostics.index);
+const source = db.tables.user.find({ age: 100 });
 
-  source.__diagnostics.index;
-  //                    ^?
-  source.__diagnostics.strategy;
-  //                    ^?
-} catch (error) {}
+console.log("__diagnostics", source.__diagnostics);
+
+source.__diagnostics.index;
+//                    ^?
+source.__diagnostics.strategy;
+//                    ^?
+
 for (const user of source) {
   console.log(user);
 }
