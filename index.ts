@@ -17,6 +17,7 @@ const db = create({
       id: Type.Number(),
       name: Type.String(),
       age: Type.Number(),
+      locations: Type.Optional(Type.Tuple([Type.Number(), Type.Number()])),
     }),
     apply: new ZodSchema({
       id: z.number(),
@@ -47,10 +48,12 @@ console.timeEnd("insert");
 console.time("find");
 
 const source = db.tables.user.find(
-  { name: "110-sof" },
+  { name: "110-sof", age: 100 },
   //   { forceFullScan: true },
 );
 try {
+  console.log(source.__diagnostics.index);
+
   source.__diagnostics.index;
   //                    ^?
   source.__diagnostics.strategy;

@@ -251,7 +251,7 @@ export namespace Table {
 
   export type IndexStrategy =
     | "FULL_COVER"
-    | "NO_COVER"
+    | "NRESIDUAL_FILTER"
     | "FULL_SCAN"
     | (string & {});
   export type Diagnostics<
