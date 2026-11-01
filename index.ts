@@ -46,7 +46,10 @@ console.timeEnd("insert");
 
 console.time("find");
 
-const source = db.tables.user.find({ age: 100, name: "110-sof" });
+const source = db.tables.user.find(
+  { name: "110-sof" },
+  { forceFullScan: true },
+);
 try {
   source.__diagnostics.index;
   //                    ^?

@@ -61,9 +61,15 @@ export class Table<
     return this._db.get(id, options);
   }
 
-  find<Q extends Partial<Omit<ROW, "id">>>(
-    query = {} as Q, //& Table.ValidateQuery<IDX_COLS, Q>,
-  ): Table.WatchmanSource<ROW, Table.DeduceStrategy<IDX_COLS, Q>> {
+  find<Q extends Partial<Omit<ROW, "id">>, O extends Table.FindOptions>(
+    query = {} as Q & Table.ValidateQuery<IDX_COLS, Q, O>,
+    options?: O,
+  ): Table.WatchmanSource<
+    ROW,
+    O["forceFullScan"] extends true
+      ? { index: never; strategy: "MANUAL_FULL_SCAN" }
+      : Table.DeduceStrategy<IDX_COLS, Q>
+  > {
     const queryKeys = Object.keys(query) as string[];
 
     if (queryKeys.length === 0)
@@ -71,7 +77,7 @@ export class Table<
         map((e) => e.value),
       ) as never;
 
-    if (this._indexes) {
+    if (this._indexes && !options?.forceFullScan) {
       for (const index of this._indexes) {
         const source = index.find(query, queryKeys.length);
         if (!source) continue;
@@ -235,14 +241,20 @@ export namespace Table {
   export type WatchmanSource<T, Diagnostic> = Source<T> & {
     __diagnostics: Diagnostic;
   };
+  export interface FindOptions {
+    forceFullScan?: boolean;
+  }
+
+  // The Validation Guard now inspects the Options generic 'O'
   export type ValidateQuery<
     Indexes extends string[][],
     Query extends Record<string, any>,
-  > = DeduceStrategy<Indexes, Query>["strategy"] extends "FULL_SCAN"
-    ? {
-        [K in keyof Query]: Query[K];
-      } & {
-        readonly __unindexed_query_error: "❌ WatchmanDB Error: This query results in a FULL_SCAN! Please add an appropriate index definition.";
-      }
-    : Query;
+    O extends FindOptions,
+  > = O["forceFullScan"] extends true
+    ? Query // Escape hatch triggered! Bypass all indexing errors.
+    : DeduceStrategy<Indexes, Query>["strategy"] extends "FULL_SCAN"
+      ? { [K in keyof Query]: Query[K] } & {
+          readonly __unindexed_query_error: "❌ WatchmanDB Error: This query results in a FULL_SCAN! Please add an appropriate index or pass { forceFullScan: true }.";
+        }
+      : Query; // Valid index found
 }

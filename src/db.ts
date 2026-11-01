@@ -52,7 +52,7 @@ export type Config<
 };
 export function create<
   TABLES_SCHEMA extends TablesSchema,
-  INDEXES extends Indexes<TABLES_SCHEMA>,
+  const INDEXES extends Indexes<TABLES_SCHEMA>,
 >(config: Config<TABLES_SCHEMA, INDEXES>): Db<TABLES_SCHEMA, INDEXES> {
   const env = open(config.path, {
     ...config.options,
