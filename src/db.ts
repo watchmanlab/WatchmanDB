@@ -4,40 +4,56 @@ import { Table } from "./table.js";
 import type { SchemaProvider } from "./schema-provider.js";
 import { Index } from "./table-index.js";
 
-export type Db<DB_SCHEMA extends DbSchema, TX extends boolean = false> = {
+export type Db<
+  TABLES_SCHEMA extends TablesSchema,
+  INDEXES extends Indexes<TABLES_SCHEMA>,
+  TX extends boolean = false,
+> = {
   env: RootDatabase;
-  tables: Tables<DB_SCHEMA, TX>;
+  tables: Tables<TABLES_SCHEMA, INDEXES, TX>;
 } & (TX extends false
-  ? { transaction<T>(fn: (db: Db<DB_SCHEMA, true>) => T): Promise<T> }
+  ? {
+      transaction<T>(
+        fn: (db: Db<TABLES_SCHEMA, INDEXES, true>) => T,
+      ): Promise<T>;
+    }
   : {});
 
-export type DbSchema = { [K: string]: SchemaProvider<any, any> };
+export type TablesSchema = { [K: string]: SchemaProvider<any, any> };
 
-export type Tables<DB_SCHEMA extends DbSchema, TX extends boolean = false> = {
-  [K in keyof DB_SCHEMA]: Table<
-    DB_SCHEMA[K],
-    SchemaProvider.InferOutput<DB_SCHEMA[K]>,
-    Exclude<keyof SchemaProvider.InferOutput<DB_SCHEMA[K]>, "id">[][],
+export type Tables<
+  TABLES_SCHEMA extends TablesSchema,
+  INDEXES extends Indexes<TABLES_SCHEMA>,
+  TX extends boolean = false,
+> = {
+  [K in keyof TABLES_SCHEMA]: Table<
+    TABLES_SCHEMA[K],
+    SchemaProvider.InferOutput<TABLES_SCHEMA[K]>,
+    INDEXES[K] extends string[][] ? INDEXES[K] : string[][],
     TX
   >;
 };
 
-export type Indexes<DB_SCHEMA extends DbSchema> = {
-  [K in keyof DB_SCHEMA]?: Exclude<
-    keyof SchemaProvider.InferOutput<DB_SCHEMA[K]>,
+export type Indexes<TABLES_SCHEMA extends TablesSchema> = {
+  [K in keyof TABLES_SCHEMA]?: Exclude<
+    keyof SchemaProvider.InferOutput<TABLES_SCHEMA[K]>,
     "id"
   >[][];
 };
 
-export type Config<DB_SCHEMA extends DbSchema> = {
+export type Config<
+  TABLES_SCHEMA extends TablesSchema,
+  INDEXES extends Indexes<TABLES_SCHEMA>,
+> = {
   path: `${string}.mdb`;
-  dbSchema: DB_SCHEMA;
-  indexes?: Indexes<DB_SCHEMA>;
+  dbSchema: TABLES_SCHEMA;
+  indexes?: INDEXES;
   options?: Omit<RootDatabaseOptions, "maxDbs" | "dupSort" | "useVersions">;
 };
-export function create<DB_SCHEMA extends DbSchema>(
-  config: Config<DB_SCHEMA>,
-): Db<DB_SCHEMA> {
+export function create<
+  TABLES_SCHEMA extends TablesSchema,
+  INDEXES extends Indexes<TABLES_SCHEMA>,
+>(config: Config<TABLES_SCHEMA, INDEXES>): Db<TABLES_SCHEMA, INDEXES> {
   const env = open(config.path, {
     ...config.options,
     maxDbs:
@@ -46,7 +62,7 @@ export function create<DB_SCHEMA extends DbSchema>(
   });
   env.readerCheck();
 
-  const db: Db<DB_SCHEMA> = {
+  const db: Db<TABLES_SCHEMA, INDEXES> = {
     env,
     tables: Object.fromEntries(
       Object.entries(config.dbSchema).map(([tableName, tableSchema]) => {
@@ -60,7 +76,7 @@ export function create<DB_SCHEMA extends DbSchema>(
           ),
         ];
       }),
-    ) as Tables<DB_SCHEMA>,
+    ) as Tables<TABLES_SCHEMA, INDEXES>,
 
     transaction(fn) {
       const { transaction, ...rest } = db;
